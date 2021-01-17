@@ -216,6 +216,7 @@ func (task *Task) savePipe() {
 			if err != nil {
 				log.Errorf("save tile to mbtiles db error ~ %s", err)
 			}
+			log.Infof("save batch complete count %d", len(batch))
 			batch = []Tile{}
 		}
 
@@ -225,10 +226,10 @@ func (task *Task) savePipe() {
 		if err != nil {
 			log.Errorf("save tile to mbtiles db error ~ %s", err)
 		}
+		log.Infof("save batch complete count %d", len(batch))
 		batch = []Tile{}
 	}
 	task.wg.Done()
-
 }
 
 //SaveTile 保存瓦片
