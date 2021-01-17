@@ -5,13 +5,12 @@
 	#can be mbtiles/file
 	format ="mbtiles"
 	#the output dir
-	directory ="output"
+	directory ="f:\\output"
 [task]
 	#number of fetchers
 	workers = 16
 	#number of savers
-	savepipe = 1
-
+	savepipe = 1000
 [tm]
 	#name for mbtiles
 	name = "streets-v8"
@@ -19,7 +18,7 @@
 	min = 0
 	max = 10
 	#can be pbf/png/jpg
-	format = "jpg"
+	format = "pbf"
 	#can be xyz/tm
 	schema = "xyz"
 	#the vector tiles metadata tilejson
@@ -27,21 +26,9 @@
 	#url is the schema url of tiles
 	# url= "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/{z}/{x}/{y}.vector.pbf?sku=1016gFniej06a&access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4M29iazA2Z2gycXA4N2pmbDZmangifQ.-g_vE53SD2WrJ6tFX7QHmA"
 	# url= "https://api.mapbox.com/v4/mapbox.mapbox-terrain-v2/{z}/{x}/{y}.vector.pbf?sku=1016gFniej06a&access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4M29iazA2Z2gycXA4N2pmbDZmangifQ.-g_vE53SD2WrJ6tFX7QHmA"
-	url = "http://mt0.google.cn/vt/lyrs=s&x={x}&y={y}&z={z}"
+	url = "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/{z}/{x}/{y}.vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA"
 #lrs can set diff boundaries for diff levels
   [[lrs]]
   	min = 0
-  	max = 5
-  	geojson = "./geojson/global.geojson"
- [[lrs]]
- 	min = 6
- 	max = 8
- 	geojson = "./geojson/china.geojson"
-  [[lrs]]
- 	min = 9
   	max = 10
-  	geojson = "./geojson/jiangsu.geojson"
- [[lrs]]
-  	min = 11
-  	max = 11
-  	geojson = "./geojson/nanjing.geojson"
+  	geojson = "./geojson/global.geojson"

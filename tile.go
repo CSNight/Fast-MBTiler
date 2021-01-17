@@ -12,12 +12,6 @@ import (
 //TileSize 默认瓦片大小
 const TileSize = 256
 
-//ZoomMin 最小级别
-const ZoomMin = 0
-
-//ZoomMax 最大级别
-const ZoomMax = 20
-
 //Tile 自定义瓦片存储
 type Tile struct {
 	T maptile.Tile
