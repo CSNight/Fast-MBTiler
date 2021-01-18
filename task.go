@@ -456,8 +456,8 @@ func (task *Task) printPipe() {
 }
 func (task *Task) retryLoop() {
 	for true {
-		time.Sleep(time.Second * 5)
 		task.retry()
+		time.Sleep(time.Second * 5)
 		if task.complete {
 			break
 		}
