@@ -97,7 +97,7 @@ func NewTask(layers []Layer, m TileMap) *Task {
 		MaxActive:   32,
 		IdleTimeout: 120,
 		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", "10.1.210.69:6379")
+			return redis.Dial("tcp", "127.0.0.1:6379")
 		},
 	}
 	return &task
@@ -240,9 +240,9 @@ func (task *Task) savePipe() {
 }
 
 type ErrTile struct {
-	X   uint32 `json:"x"`
-	Y   uint32 `json:"y"`
-	Z   uint32 `json:"z"`
+	X   uint64 `json:"x"`
+	Y   uint64 `json:"y"`
+	Z   uint64 `json:"z"`
 	Url string `json:"url"`
 }
 
@@ -256,12 +256,12 @@ func (task *Task) errToRedis(tile maptile.Tile, url string) {
 	}()
 	conn = task.redisPool.Get()
 	et := ErrTile{
-		X:   tile.X,
-		Y:   tile.Y,
-		Z:   uint32(tile.Z),
+		X:   uint64(tile.X),
+		Y:   uint64(tile.Y),
+		Z:   uint64(tile.Z),
 		Url: url,
 	}
-	key := "tile_" + strconv.Itoa(int(et.X)) + "_" + strconv.Itoa(int(et.Y)) + "_" + strconv.Itoa(int(et.Z))
+	key := "tile_" + strconv.FormatUint(et.X, 10) + "_" + strconv.FormatUint(et.Y, 10) + "_" + strconv.FormatUint(et.Z, 10)
 	val, _ := json.Marshal(et)
 	replay, err := redis.Int64(conn.Do("hset", "fail_list", key, val))
 	if err != nil && replay > 0 {
@@ -293,9 +293,9 @@ func (task *Task) retry() {
 			continue
 		}
 		tile := maptile.Tile{
-			X: te.X,
-			Y: te.Y,
-			Z: maptile.Zoom(te.Z),
+			X: uint32(te.X),
+			Y: uint32(te.X),
+			Z: maptile.Zoom(uint32(te.Z)),
 		}
 		go task.tileFetcher(tile, te.Url)
 	}
