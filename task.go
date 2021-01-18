@@ -4,7 +4,16 @@ import (
 	"bytes"
 	"compress/gzip"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"github.com/gomodule/redigo/redis"
+	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/maptile"
+	"github.com/paulmach/orb/maptile/tilecover"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
+	"github.com/teris-io/shortid"
+	pb "gopkg.in/cheggaaa/pb.v1"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -13,14 +22,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/maptile"
-	"github.com/paulmach/orb/maptile/tilecover"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-	"github.com/teris-io/shortid"
-	pb "gopkg.in/cheggaaa/pb.v1"
 )
 
 //MBTileVersion mbtiles版本号
@@ -50,6 +51,7 @@ type Task struct {
 	tileSet            Set
 	complete           bool
 	outformat          string
+	redisPool          redis.Pool
 }
 
 //NewTask 创建下载任务
@@ -90,6 +92,14 @@ func NewTask(layers []Layer, m TileMap) *Task {
 	task.tileSet = Set{M: make(maptile.Set)}
 	task.complete = false
 	task.outformat = viper.GetString("output.format")
+	task.redisPool = redis.Pool{
+		MaxIdle:     16,
+		MaxActive:   32,
+		IdleTimeout: 120,
+		Dial: func() (redis.Conn, error) {
+			return redis.Dial("tcp", "10.1.210.69:6379")
+		},
+	}
 	return &task
 }
 
@@ -139,13 +149,11 @@ func (task *Task) MetaItems() map[string]string {
 
 //SetupMBTileTables 初始化配置MBTile库
 func (task *Task) SetupMBTileTables() error {
-
 	if task.File == "" {
 		outdir := viper.GetString("output.directory")
 		os.MkdirAll(outdir, os.ModePerm)
-		task.File = filepath.Join(outdir, fmt.Sprintf("%s-z%d-%d.%s.mbtiles", task.Name, task.Min, task.Max, task.ID))
+		task.File = filepath.Join(outdir, fmt.Sprintf("%s.mbtiles", task.Name))
 	}
-	os.Remove(task.File)
 	db, err := sql.Open("sqlite3", task.File)
 	if err != nil {
 		return err
@@ -166,23 +174,23 @@ func (task *Task) SetupMBTileTables() error {
 		return err
 	}
 
-	_, err = db.Exec("create unique index name on metadata (name);")
-	if err != nil {
-		return err
-	}
+	//_, err = db.Exec("create unique index name on metadata (name);")
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	//if err != nil {
+	//	return err
+	//}
 
-	_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	if err != nil {
-		return err
-	}
-
-	// Load metadata.
-	for name, value := range task.MetaItems() {
-		_, err := db.Exec("insert into metadata (name, value) values (?, ?)", name, value)
-		if err != nil {
-			return err
-		}
-	}
+	//// Load metadata.
+	//for name, value := range task.MetaItems() {
+	//	_, err := db.Exec("insert into metadata (name, value) values (?, ?)", name, value)
+	//	if err != nil {
+	//		return err
+	//	}
+	//}
 
 	task.db = db //保存任务的库连接
 	return nil
@@ -211,7 +219,7 @@ func (task *Task) savePipe() {
 	var batch []Tile
 	for tile := range task.savingpipe {
 		batch = append(batch, tile)
-		if len(batch) == 1000 {
+		if len(batch) == task.savePipeSize {
 			err := saveToMBTile(batch, task.db)
 			if err != nil {
 				log.Errorf("save tile to mbtiles db error ~ %s", err)
@@ -219,7 +227,6 @@ func (task *Task) savePipe() {
 			log.Infof("save batch complete count %d", len(batch))
 			batch = []Tile{}
 		}
-
 	}
 	if task.complete {
 		err := saveToMBTile(batch, task.db)
@@ -230,6 +237,68 @@ func (task *Task) savePipe() {
 		batch = []Tile{}
 	}
 	task.wg.Done()
+}
+
+type ErrTile struct {
+	X   uint32 `json:"x"`
+	Y   uint32 `json:"y"`
+	Z   uint32 `json:"z"`
+	Url string `json:"url"`
+}
+
+func (task *Task) errToRedis(tile maptile.Tile, url string) {
+	var conn redis.Conn
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Warnf("redis connection close failure")
+		}
+	}()
+	conn = task.redisPool.Get()
+	et := ErrTile{
+		X:   tile.X,
+		Y:   tile.Y,
+		Z:   uint32(tile.Z),
+		Url: url,
+	}
+	key := "tile_" + strconv.Itoa(int(et.X)) + "_" + strconv.Itoa(int(et.Y)) + "_" + strconv.Itoa(int(et.Z))
+	val, _ := json.Marshal(et)
+	replay, err := redis.Int64(conn.Do("hset", "fail_list", key, val))
+	if err != nil && replay > 0 {
+		log.Warnf("redis save tile failure")
+	}
+}
+
+func (task *Task) retry() {
+	var conn redis.Conn
+	var alls map[string]string
+	defer func() {
+		for kv := range alls {
+			conn.Do("hdel", "fail_list", kv)
+		}
+		err := conn.Close()
+		if err != nil {
+			log.Warnf("redis connection close failure")
+		}
+	}()
+	conn = task.redisPool.Get()
+	alls, err := redis.StringMap(conn.Do("hgetall", "fail_list"))
+	if err != nil {
+		return
+	}
+	for kv := range alls {
+		var te ErrTile
+		err = json.Unmarshal([]byte(alls[kv]), &te)
+		if err != nil {
+			continue
+		}
+		tile := maptile.Tile{
+			X: te.X,
+			Y: te.Y,
+			Z: maptile.Zoom(te.Z),
+		}
+		go task.tileFetcher(tile, te.Url)
+	}
 }
 
 //SaveTile 保存瓦片
@@ -248,7 +317,7 @@ func (task *Task) tileFetcher(t maptile.Tile, url string) {
 	defer func() {
 		<-task.workers
 	}()
-	start := time.Now()
+	//start := time.Now()
 	prep := func(t maptile.Tile, url string) string {
 		url = strings.Replace(url, "{x}", strconv.Itoa(int(t.X)), -1)
 		url = strings.Replace(url, "{y}", strconv.Itoa(int(t.Y)), -1)
@@ -258,21 +327,28 @@ func (task *Task) tileFetcher(t maptile.Tile, url string) {
 	pbf := prep(t, url)
 	resp, err := http.Get(pbf)
 	if err != nil {
+		task.errToRedis(t, url)
 		log.Errorf("fetch :%s error, details: %s ~", pbf, err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Warnf("response close failure")
+		}
+	}()
 	if resp.StatusCode != 200 {
 		log.Errorf("fetch %v tile error, status code: %d ~", pbf, resp.StatusCode)
 		return
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		task.errToRedis(t, url)
 		log.Errorf("read %v tile error ~ %s", t, err)
 		return
 	}
 	if len(body) == 0 {
-		log.Warnf("nil tile %v ~", t)
+		log.Errorf("fetch %v tile error, nil tile %v ~", pbf, t)
 		return //zero byte tiles n
 	}
 	tile := Tile{
@@ -280,7 +356,6 @@ func (task *Task) tileFetcher(t maptile.Tile, url string) {
 		C: body,
 	}
 	if task.TileMap.Format == PBF {
-
 		var buf bytes.Buffer
 		zw := gzip.NewWriter(&buf)
 		_, err = zw.Write(body)
@@ -300,8 +375,8 @@ func (task *Task) tileFetcher(t maptile.Tile, url string) {
 		task.wg.Add(1)
 		task.saveTile(tile)
 	}
-	secs := time.Since(start).Seconds()
-	fmt.Printf("\ntile %v, %.3fs, %.2f kb, %s ...\n", t, secs, float32(len(body))/1024.0, pbf)
+	//secs := time.Since(start).Seconds()
+	//fmt.Printf("\ntile %v, %.3fs, %.2f kb, %s ...\n", t, secs, float32(len(body))/1024.0, pbf)
 }
 
 //DownloadZoom 下载指定层级
@@ -353,8 +428,9 @@ func (task *Task) Download() {
 	//.Postfix("\n")
 	// task.Bar.SetRefreshRate(10 * time.Second)
 	// task.Bar.Format("<.- >")
-	task.Bar.Start()
+	// task.Bar.Start()
 	go task.printPipe()
+	go task.retryLoop()
 	for _, layer := range task.Layers {
 		task.downloadLayer(layer)
 	}
@@ -376,5 +452,14 @@ func (task *Task) printPipe() {
 		}
 		time.Sleep(time.Second * 5)
 		log.Infof("pipe size %d", len(task.savingpipe))
+	}
+}
+func (task *Task) retryLoop() {
+	for true {
+		time.Sleep(time.Second * 5)
+		task.retry()
+		if task.complete {
+			break
+		}
 	}
 }
