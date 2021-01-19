@@ -243,10 +243,11 @@ type ErrTile struct {
 	X   uint64 `json:"x"`
 	Y   uint64 `json:"y"`
 	Z   uint64 `json:"z"`
+	Res string `json:"res"`
 	Url string `json:"url"`
 }
 
-func (task *Task) errToRedis(tile maptile.Tile, url string) {
+func (task *Task) errToRedis(tile maptile.Tile, url string, res string) {
 	var conn redis.Conn
 	defer func() {
 		err := conn.Close()
@@ -260,6 +261,7 @@ func (task *Task) errToRedis(tile maptile.Tile, url string) {
 		Y:   uint64(tile.Y),
 		Z:   uint64(tile.Z),
 		Url: url,
+		Res: res,
 	}
 	key := "tile_" + strconv.FormatUint(et.X, 10) + "_" + strconv.FormatUint(et.Y, 10) + "_" + strconv.FormatUint(et.Z, 10)
 	val, _ := json.Marshal(et)
@@ -268,12 +270,31 @@ func (task *Task) errToRedis(tile maptile.Tile, url string) {
 		log.Warnf("redis save tile failure")
 	}
 }
-
+func (task *Task) cleanFail(t maptile.Tile) {
+	var conn redis.Conn
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Warnf("redis connection close failure")
+		}
+	}()
+	conn = task.redisPool.Get()
+	key := "tile_" + strconv.FormatUint(uint64(t.X), 10) + "_" + strconv.FormatUint(uint64(t.Y), 10) + "_" + strconv.FormatUint(uint64(t.Z), 10)
+	_, err := redis.Int64(conn.Do("hdel", "fail_list", key))
+	if err != nil {
+		return
+	}
+}
 func (task *Task) retry() {
 	var conn redis.Conn
 	var alls map[string]string
 	defer func() {
 		for kv := range alls {
+			var te ErrTile
+			_ = json.Unmarshal([]byte(alls[kv]), &te)
+			if te.Res == "nil tile" || te.Res == "resp 404" {
+				continue
+			}
 			conn.Do("hdel", "fail_list", kv)
 		}
 		err := conn.Close()
@@ -292,12 +313,19 @@ func (task *Task) retry() {
 		if err != nil {
 			continue
 		}
+		if te.Res == "nil tile" || te.Res == "resp 404" {
+			continue
+		}
 		tile := maptile.Tile{
 			X: uint32(te.X),
 			Y: uint32(te.X),
 			Z: maptile.Zoom(uint32(te.Z)),
 		}
-		go task.tileFetcher(tile, te.Url)
+		select {
+		case task.workers <- tile:
+			task.wg.Add(1)
+			go task.tileFetcher(tile, te.Url, true)
+		}
 	}
 }
 
@@ -312,7 +340,7 @@ func (task *Task) saveTile(tile Tile) error {
 }
 
 //tileFetcher 瓦片加载器
-func (task *Task) tileFetcher(t maptile.Tile, url string) {
+func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 	defer task.wg.Done()
 	defer func() {
 		<-task.workers
@@ -327,8 +355,8 @@ func (task *Task) tileFetcher(t maptile.Tile, url string) {
 	pbf := prep(t, url)
 	resp, err := http.Get(pbf)
 	if err != nil {
-		task.errToRedis(t, url)
-		log.Errorf("fetch :%s error, details: %s ~", pbf, err)
+		task.errToRedis(t, url, err.Error())
+		log.Errorf("fetch :%v error, details: %s ~", t, err)
 		return
 	}
 	defer func() {
@@ -338,23 +366,27 @@ func (task *Task) tileFetcher(t maptile.Tile, url string) {
 		}
 	}()
 	if resp.StatusCode != 200 {
-		log.Errorf("fetch %v tile error, status code: %d ~", pbf, resp.StatusCode)
+		if resp.StatusCode != 404 {
+			log.Errorf("fetch %v tile error, status code: %d ~", pbf, resp.StatusCode)
+		}
+		task.errToRedis(t, url, "resp "+strconv.Itoa(resp.StatusCode))
 		return
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		task.errToRedis(t, url)
+		task.errToRedis(t, url, err.Error())
 		log.Errorf("read %v tile error ~ %s", t, err)
 		return
 	}
 	if len(body) == 0 {
-		log.Errorf("fetch %v tile error, nil tile %v ~", pbf, t)
+		task.errToRedis(t, url, "nil tile")
 		return //zero byte tiles n
 	}
 	tile := Tile{
 		T: t,
 		C: body,
 	}
+
 	if task.TileMap.Format == PBF {
 		var buf bytes.Buffer
 		zw := gzip.NewWriter(&buf)
@@ -367,13 +399,15 @@ func (task *Task) tileFetcher(t maptile.Tile, url string) {
 		}
 		tile.C = buf.Bytes()
 	}
-
 	//enable savingpipe
 	if task.outformat == "mbtiles" {
 		task.savingpipe <- tile
 	} else {
 		task.wg.Add(1)
 		task.saveTile(tile)
+	}
+	if isRetry {
+		task.cleanFail(t)
 	}
 	//secs := time.Since(start).Seconds()
 	//fmt.Printf("\ntile %v, %.3fs, %.2f kb, %s ...\n", t, secs, float32(len(body))/1024.0, pbf)
@@ -397,7 +431,7 @@ func (task *Task) downloadLayer(layer Layer) {
 			bar.Increment()
 			task.Bar.Increment()
 			task.wg.Add(1)
-			go task.tileFetcher(tile, layer.URL)
+			go task.tileFetcher(tile, layer.URL, false)
 		case <-task.abort:
 			log.Infof("task %s got canceled.", task.ID)
 			close(tilelist)
