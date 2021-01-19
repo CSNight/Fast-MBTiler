@@ -415,7 +415,7 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 
 //DownloadZoom 下载指定层级
 func (task *Task) downloadLayer(layer Layer) {
-	bar := pb.New64(layer.Count).Prefix(fmt.Sprintf("Zoom %d : ", layer.Zoom)).Postfix("\n")
+	bar := pb.New64(layer.Count).Prefix(fmt.Sprintf("Zoom %d : ", layer.Zoom))
 	// bar.SetRefreshRate(time.Second)
 	bar.Start()
 	// bar.SetMaxWidth(300)
@@ -459,9 +459,6 @@ func (task *Task) Download() {
 	go task.savePipe()
 	//g orb.Geometry, minz int, maxz int
 	task.Bar = pb.New64(task.Total).Prefix("Task : ")
-	//.Postfix("\n")
-	// task.Bar.SetRefreshRate(10 * time.Second)
-	// task.Bar.Format("<.- >")
 	// task.Bar.Start()
 	go task.printPipe()
 	go task.retryLoop()
@@ -485,7 +482,7 @@ func (task *Task) printPipe() {
 			break
 		}
 		time.Sleep(time.Second * 5)
-		log.Infof("pipe size %d", len(task.savingpipe))
+		log.Debugf("pipe size %d", len(task.savingpipe))
 	}
 }
 func (task *Task) retryLoop() {

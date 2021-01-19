@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/shiena/ansicolor"
 	log "github.com/sirupsen/logrus"
 
 	nested "github.com/antonfisher/nested-logrus-formatter"
@@ -36,13 +35,11 @@ func init() {
 	})
 	// then wrap the log output with it
 	file, err := os.OpenFile("download.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	writers := []io.Writer{
-		file,
-		ansicolor.NewAnsiColorWriter(os.Stdout)}
+	writers := []io.Writer{file}
 	//同时写文件和屏幕
-	fileAndStdoutWriter := io.MultiWriter(writers...)
+	fileWriter := io.MultiWriter(writers...)
 	if err == nil {
-		log.SetOutput(fileAndStdoutWriter)
+		log.SetOutput(fileWriter)
 	} else {
 		log.Info("failed to log to file.")
 	}
