@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func saveToMBTile(tiles []Tile, db *sql.DB) error {
@@ -23,8 +24,9 @@ func saveToMBTile(tiles []Tile, db *sql.DB) error {
 		}
 	}
 	err := tx.Commit()
+	time.Sleep(time.Microsecond * 200)
 	if err != nil {
-		return nil
+		return err
 	}
 	// _, err := db.Exec("insert or ignore into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?);", tile.T.Z, tile.T.X, tile.flipY(), tile.C)
 

@@ -10,7 +10,7 @@
 	#number of fetchers
 	workers = 512
 	#number of savers
-	savepipe = 2000
+	savepipe = 4000
 [tm]
 	#name for mbtiles
 	name = "streets-v8"
