@@ -164,15 +164,15 @@ func (task *Task) SetupMBTileTables() error {
 		return err
 	}
 
-	_, err = db.Exec("create table if not exists tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);")
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec("create table if not exists metadata (name text, value text);")
-	if err != nil {
-		return err
-	}
+	//_, err = db.Exec("create table if not exists tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);")
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//_, err = db.Exec("create table if not exists metadata (name text, value text);")
+	//if err != nil {
+	//	return err
+	//}
 
 	//_, err = db.Exec("create unique index name on metadata (name);")
 	//if err != nil {
@@ -248,13 +248,15 @@ func (task *Task) savePipe() {
 }
 func (task *Task) retryConnect() {
 	err := task.db.Close()
+	task.db = nil
+	time.Sleep(time.Millisecond * 100)
 	if err != nil {
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * 500)
 		task.retryConnect()
 	}
 	err = task.SetupMBTileTables()
 	if err != nil {
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * 500)
 		task.retryConnect()
 	}
 }
@@ -445,7 +447,10 @@ func (task *Task) downloadLayer(layer Layer) {
 	go tilecover.CollectionChannel(layer.Collection, maptile.Zoom(layer.Zoom), tilelist)
 
 	for tile := range tilelist {
-		// log.Infof(`fetching tile %v ~`, tile)
+		count := bar.Get()
+		if count > 0 && count%1000000 == 0 {
+			time.Sleep(time.Minute * 2)
+		}
 		select {
 		case task.workers <- tile:
 			bar.Increment()

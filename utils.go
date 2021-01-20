@@ -24,7 +24,7 @@ func saveToMBTile(tiles []Tile, db *sql.DB) error {
 		}
 	}
 	err := tx.Commit()
-	time.Sleep(time.Microsecond * 200)
+	time.Sleep(time.Microsecond * 50)
 	if err != nil {
 		return err
 	}
@@ -48,11 +48,11 @@ func optimizeConnection(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec("PRAGMA locking_mode=NORMAL")
+	_, err = db.Exec("PRAGMA locking_mode=EXCLUSIVE")
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec("PRAGMA journal_mode=DELETE")
+	_, err = db.Exec("PRAGMA journal_mode=OFF")
 	if err != nil {
 		return err
 	}

@@ -8,9 +8,9 @@
 	directory ="output"
 [task]
 	#number of fetchers
-	workers = 400
+	workers = 512
 	#number of savers
-	savepipe = 4000
+	savepipe = 3000
 [tm]
 	#name for mbtiles
 	name = "streets-v8"
