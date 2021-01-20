@@ -222,6 +222,10 @@ func (task *Task) savePipe() {
 		if len(batch) == task.savePipeSize {
 			err := saveToMBTile(batch, task.db)
 			if err != nil {
+				if strings.Contains(err.Error(), "lock") {
+					task.retryConnect()
+					saveToMBTile(batch, task.db)
+				}
 				log.Errorf("save tile to mbtiles db error ~ %s", err)
 			}
 			log.Infof("save batch complete count %d", len(batch))
@@ -231,12 +235,28 @@ func (task *Task) savePipe() {
 	if task.complete {
 		err := saveToMBTile(batch, task.db)
 		if err != nil {
+			if strings.Contains(err.Error(), "lock") {
+				task.retryConnect()
+				saveToMBTile(batch, task.db)
+			}
 			log.Errorf("save tile to mbtiles db error ~ %s", err)
 		}
 		log.Infof("save batch complete count %d", len(batch))
 		batch = []Tile{}
 	}
 	task.wg.Done()
+}
+func (task *Task) retryConnect() {
+	err := task.db.Close()
+	if err != nil {
+		time.Sleep(time.Second * 1)
+		task.retryConnect()
+	}
+	err = task.SetupMBTileTables()
+	if err != nil {
+		time.Sleep(time.Second * 1)
+		task.retryConnect()
+	}
 }
 
 type ErrTile struct {

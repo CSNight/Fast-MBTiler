@@ -28,8 +28,6 @@ func saveToMBTile(tiles []Tile, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	// _, err := db.Exec("insert or ignore into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?);", tile.T.Z, tile.T.X, tile.flipY(), tile.C)
-
 	return nil
 }
 
@@ -50,7 +48,7 @@ func optimizeConnection(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec("PRAGMA locking_mode=EXCLUSIVE")
+	_, err = db.Exec("PRAGMA locking_mode=NORMAL")
 	if err != nil {
 		return err
 	}

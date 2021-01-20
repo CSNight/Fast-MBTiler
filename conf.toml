@@ -8,7 +8,7 @@
 	directory ="output"
 [task]
 	#number of fetchers
-	workers = 512
+	workers = 400
 	#number of savers
 	savepipe = 4000
 [tm]
