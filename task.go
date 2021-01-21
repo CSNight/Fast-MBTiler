@@ -482,7 +482,7 @@ func (task *Task) Download() {
 	if task.outformat == "mbtiles" {
 		task.SetupMBTileTables()
 	}
-
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.savePipeSize
 	go task.savePipe()
 	//g orb.Geometry, minz int, maxz int
 	task.Bar = pb.New64(task.Total).Prefix("Task : ")
