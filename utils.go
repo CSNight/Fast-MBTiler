@@ -18,7 +18,7 @@ func saveToMBTile(tiles []Tile, db *sql.DB) error {
 		return er
 	}
 	for _, tile := range tiles {
-		_, err := tx.Exec("insert into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?);", tile.T.Z, tile.T.X, tile.flipY(), tile.C)
+		_, err := tx.Exec("insert or ignore into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?);", tile.T.Z, tile.T.X, tile.flipY(), tile.C)
 		if err != nil {
 			return err
 		}
