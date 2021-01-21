@@ -173,7 +173,7 @@ func (task *Task) SetupMBTileTables() error {
 	//if err != nil {
 	//	return err
 	//}
-
+	//
 	//_, err = db.Exec("create unique index name on metadata (name);")
 	//if err != nil {
 	//	return err
@@ -183,7 +183,7 @@ func (task *Task) SetupMBTileTables() error {
 	//if err != nil {
 	//	return err
 	//}
-
+	//
 	//// Load metadata.
 	//for name, value := range task.MetaItems() {
 	//	_, err := db.Exec("insert into metadata (name, value) values (?, ?)", name, value)
@@ -247,14 +247,16 @@ func (task *Task) savePipe() {
 	task.wg.Done()
 }
 func (task *Task) retryConnect() {
-	err := task.db.Close()
+	if task.db != nil {
+		err := task.db.Close()
+		if err != nil {
+			time.Sleep(time.Millisecond * 500)
+			task.retryConnect()
+		}
+	}
 	task.db = nil
 	time.Sleep(time.Millisecond * 100)
-	if err != nil {
-		time.Sleep(time.Millisecond * 500)
-		task.retryConnect()
-	}
-	err = task.SetupMBTileTables()
+	err := task.SetupMBTileTables()
 	if err != nil {
 		time.Sleep(time.Millisecond * 500)
 		task.retryConnect()
