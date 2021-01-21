@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"sync"
 
 	"github.com/paulmach/orb"
@@ -19,8 +18,7 @@ type Tile struct {
 }
 
 func (tile Tile) flipY() uint32 {
-	zpower := math.Pow(2.0, float64(tile.T.Z))
-	return uint32(zpower) - 1 - tile.T.Y
+	return (1 << uint32(tile.T.Z)) - tile.T.Y - 1
 }
 
 //Set a safety set
