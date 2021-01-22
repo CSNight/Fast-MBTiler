@@ -30,7 +30,7 @@ type Set struct {
 //Layer 级别&瓦片数
 type Layer struct {
 	URL        string
-	Zoom       int
+	Zoom       uint32
 	Count      int64
 	Collection orb.Collection
 }

@@ -109,8 +109,8 @@ func main() {
 		URL:    viper.GetString("tm.url"),
 	}
 	type cfgLayer struct {
-		Min     int
-		Max     int
+		Min     uint32
+		Max     uint32
 		Geojson string
 		URL     string
 	}
