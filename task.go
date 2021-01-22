@@ -371,9 +371,9 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 	}()
 	//start := time.Now()
 	prep := func(t maptile.Tile, url string) string {
-		url = strings.Replace(url, "{x}", strconv.Itoa(int(t.X)), -1)
-		url = strings.Replace(url, "{y}", strconv.Itoa(int(t.Y)), -1)
-		url = strings.Replace(url, "{z}", strconv.Itoa(int(t.Z)), -1)
+		url = strings.Replace(url, "{x}", strconv.FormatUint(uint64(t.X), 10), -1)
+		url = strings.Replace(url, "{y}", strconv.FormatUint(uint64(t.Y), 10), -1)
+		url = strings.Replace(url, "{z}", strconv.FormatUint(uint64(t.Z), 10), -1)
 		return url
 	}
 	pbf := prep(t, url)
