@@ -4,6 +4,7 @@ go 1.15
 
 require (
 	github.com/antonfisher/nested-logrus-formatter v1.3.0
+	github.com/go-sql-driver/mysql v1.5.0
 	github.com/gomodule/redigo v1.8.3
 	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/mattn/go-sqlite3 v1.14.2 // indirect
