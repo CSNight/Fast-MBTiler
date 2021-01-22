@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gomodule/redigo/redis"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/maptile"
@@ -52,6 +53,7 @@ type Task struct {
 	complete           bool
 	outformat          string
 	redisPool          redis.Pool
+	conn               string
 }
 
 //NewTask 创建下载任务
@@ -92,6 +94,7 @@ func NewTask(layers []Layer, m TileMap) *Task {
 	task.tileSet = Set{M: make(maptile.Set)}
 	task.complete = false
 	task.outformat = viper.GetString("output.format")
+	task.conn = viper.GetString("output.conn")
 	task.redisPool = redis.Pool{
 		MaxIdle:     16,
 		MaxActive:   32,
@@ -196,6 +199,46 @@ func (task *Task) SetupMBTileTables() error {
 	return nil
 }
 
+//SetupMBTileTables 初始化配置MBTile库
+func (task *Task) SetupMysqlTables() error {
+	db, err := sql.Open("mysql", task.conn)
+	if err != nil {
+		return err
+	}
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(10)
+	_, err = db.Exec("create table if not exists tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data mediumblob);")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("create table if not exists metadata (name VARCHAR(50) , value mediumtext);")
+	if err != nil {
+		return err
+	}
+
+	//_, err = db.Exec("create unique if not exists index name on metadata (name);")
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//_, err = db.Exec("create unique if not exists  index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	//if err != nil {
+	//	return err
+	//}
+
+	// Load metadata.
+	for name, value := range task.MetaItems() {
+		_, err := db.Exec("insert ignore into metadata (name, value) values (?, ?)", name, value)
+		if err != nil {
+			return err
+		}
+	}
+
+	task.db = db //保存任务的库连接
+	return nil
+}
+
 func (task *Task) abortFun() {
 	// os.Stdin.Read(make([]byte, 1)) // read a single byte
 	// <-time.After(8 * time.Second)
@@ -220,11 +263,11 @@ func (task *Task) savePipe() {
 	for tile := range task.savingpipe {
 		batch = append(batch, tile)
 		if len(batch) == task.savePipeSize {
-			err := saveToMBTile(batch, task.db)
+			err := saveToMBTile(batch, task.db, task.outformat)
 			if err != nil {
 				if strings.Contains(err.Error(), "lock") {
 					task.retryConnect()
-					saveToMBTile(batch, task.db)
+					saveToMBTile(batch, task.db, task.outformat)
 				}
 				log.Errorf("save tile to mbtiles db error ~ %s", err)
 			}
@@ -233,11 +276,11 @@ func (task *Task) savePipe() {
 		}
 	}
 	if task.complete {
-		err := saveToMBTile(batch, task.db)
+		err := saveToMBTile(batch, task.db, task.outformat)
 		if err != nil {
 			if strings.Contains(err.Error(), "lock") {
 				task.retryConnect()
-				saveToMBTile(batch, task.db)
+				saveToMBTile(batch, task.db, task.outformat)
 			}
 			log.Errorf("save tile to mbtiles db error ~ %s", err)
 		}
@@ -264,9 +307,9 @@ func (task *Task) retryConnect() {
 }
 
 type ErrTile struct {
-	X   uint64 `json:"x"`
-	Y   uint64 `json:"y"`
-	Z   uint64 `json:"z"`
+	X   int    `json:"x"`
+	Y   int    `json:"y"`
+	Z   int    `json:"z"`
 	Res string `json:"res"`
 	Url string `json:"url"`
 }
@@ -281,13 +324,13 @@ func (task *Task) errToRedis(tile maptile.Tile, url string, res string) {
 	}()
 	conn = task.redisPool.Get()
 	et := ErrTile{
-		X:   uint64(tile.X),
-		Y:   uint64(tile.Y),
-		Z:   uint64(tile.Z),
+		X:   int(tile.X),
+		Y:   int(tile.Y),
+		Z:   int(tile.Z),
 		Url: url,
 		Res: res,
 	}
-	key := "tile_" + strconv.FormatUint(et.X, 10) + "_" + strconv.FormatUint(et.Y, 10) + "_" + strconv.FormatUint(et.Z, 10)
+	key := "tile_" + strconv.Itoa(et.X) + "_" + strconv.Itoa(et.Y) + "_" + strconv.Itoa(et.Y)
 	val, _ := json.Marshal(et)
 	replay, err := redis.Int64(conn.Do("hset", "fail_list", key, val))
 	if err != nil && replay > 0 {
@@ -303,7 +346,7 @@ func (task *Task) cleanFail(t maptile.Tile) {
 		}
 	}()
 	conn = task.redisPool.Get()
-	key := "tile_" + strconv.FormatUint(uint64(t.X), 10) + "_" + strconv.FormatUint(uint64(t.Y), 10) + "_" + strconv.FormatUint(uint64(t.Z), 10)
+	key := "tile_" + strconv.Itoa(int(t.X)) + "_" + strconv.Itoa(int(t.Y)) + "_" + strconv.Itoa(int(t.Y))
 	_, err := redis.Int64(conn.Do("hdel", "fail_list", key))
 	if err != nil {
 		return
@@ -371,9 +414,9 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 	}()
 	//start := time.Now()
 	prep := func(t maptile.Tile, url string) string {
-		url = strings.Replace(url, "{x}", strconv.FormatUint(uint64(t.X), 10), -1)
-		url = strings.Replace(url, "{y}", strconv.FormatUint(uint64(t.Y), 10), -1)
-		url = strings.Replace(url, "{z}", strconv.FormatUint(uint64(t.Z), 10), -1)
+		url = strings.Replace(url, "{x}", strconv.Itoa(int(t.X)), -1)
+		url = strings.Replace(url, "{y}", strconv.Itoa(int(t.Y)), -1)
+		url = strings.Replace(url, "{z}", strconv.Itoa(int(t.Z)), -1)
 		return url
 	}
 	pbf := prep(t, url)
@@ -424,11 +467,11 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 		tile.C = buf.Bytes()
 	}
 	//enable savingpipe
-	if task.outformat == "mbtiles" {
+	if task.outformat == "mbtiles" || task.outformat == "mysql" {
 		task.savingpipe <- tile
 	} else {
 		task.wg.Add(1)
-		task.saveTile(tile)
+		_ = task.saveTile(tile)
 	}
 	if isRetry {
 		task.cleanFail(t)
@@ -480,7 +523,18 @@ func (task *Task) downloadLayer(layer Layer) {
 //Download 开启下载任务
 func (task *Task) Download() {
 	if task.outformat == "mbtiles" {
-		task.SetupMBTileTables()
+		err := task.SetupMBTileTables()
+		if err != nil {
+			log.Errorf("Database connect and prepare error")
+			return
+		}
+	}
+	if task.outformat == "mysql" {
+		err := task.SetupMysqlTables()
+		if err != nil {
+			log.Errorf("Database connect and prepare error")
+			return
+		}
 	}
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.savePipeSize
 	go task.savePipe()
