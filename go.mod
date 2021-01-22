@@ -1,4 +1,4 @@
-module tiler
+module Fast-MBTiler
 
 go 1.15
 
@@ -9,7 +9,6 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.2 // indirect
 	github.com/paulmach/orb v0.1.6
 	github.com/shaxbee/go-spatialite v0.0.0-20180425212100-9b4c81899e0e
-	github.com/shiena/ansicolor v0.0.0-20200830101100-9405ca8e49f3
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/viper v1.7.1
 	github.com/teris-io/shortid v0.0.0-20171029131806-771a37caa5cf

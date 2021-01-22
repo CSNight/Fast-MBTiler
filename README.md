@@ -1,5 +1,5 @@
 
-# 地图下载器 Tiler - map tiles downloader
+# 地图下载器 Fast-MBTiler - map tiles downloader
 
 A well-polished tile downloader
 
