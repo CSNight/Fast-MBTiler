@@ -46,8 +46,8 @@ func init() {
 	log.SetLevel(log.DebugLevel)
 }
 func usage() {
-	fmt.Fprintf(os.Stderr, `tiler version: tiler/0.9.19
-Usage: tiler [-h] [-c filename]
+	fmt.Fprintf(os.Stderr, `Fast-MBTiler version: Fast-MBTiler/1.0
+Usage: Fast-MBTiler [-h] [-c filename]
 `)
 	flag.PrintDefaults()
 }

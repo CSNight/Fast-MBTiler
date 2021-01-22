@@ -17,9 +17,8 @@ type st struct {
 	Url string `json:"url"`
 }
 
-func main() {
+func test() {
 	exportRedisToLog()
-
 }
 func exportRedisToLog() {
 	f, err := os.OpenFile("errTile.txt", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)

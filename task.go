@@ -164,33 +164,33 @@ func (task *Task) SetupMBTileTables() error {
 		return err
 	}
 
-	//_, err = db.Exec("create table if not exists tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//_, err = db.Exec("create table if not exists metadata (name text, value text);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//_, err = db.Exec("create unique index name on metadata (name);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//// Load metadata.
-	//for name, value := range task.MetaItems() {
-	//	_, err := db.Exec("insert into metadata (name, value) values (?, ?)", name, value)
-	//	if err != nil {
-	//		return err
-	//	}
-	//}
+	_, err = db.Exec("create table if not exists tiles (zoom_level integer, tile_column integer, tile_row integer, tile_data blob);")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("create table if not exists metadata (name text, value text);")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("create unique index name on metadata (name);")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	if err != nil {
+		return err
+	}
+
+	// Load metadata.
+	for name, value := range task.MetaItems() {
+		_, err := db.Exec("insert into metadata (name, value) values (?, ?)", name, value)
+		if err != nil {
+			return err
+		}
+	}
 
 	task.db = db //保存任务的库连接
 	return nil
