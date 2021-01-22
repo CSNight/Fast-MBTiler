@@ -47,7 +47,7 @@ func exportRedisToLog() {
 	}
 }
 func saveLogToRedis() {
-	file, err := os.Open("download-2021-1-18.log")
+	file, err := os.Open("errTile.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,14 +68,14 @@ func saveLogToRedis() {
 	for scanner.Scan() {
 		lineText := scanner.Text()
 		srt := strings.Split(lineText, "/")
-		x, err := strconv.ParseUint(srt[1], 10, 32)
-		y, err := strconv.ParseUint(srt[2], 10, 32)
-		z, err := strconv.ParseUint(srt[0], 10, 32)
+		x, err := strconv.ParseUint(srt[0], 10, 32)
+		y, err := strconv.ParseUint(srt[1], 10, 32)
+		z, err := strconv.ParseUint(srt[2], 10, 32)
 		et := st{
 			X:   x,
 			Y:   y,
 			Z:   z,
-			Url: "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/" + lineText + ".vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA",
+			Url: "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/" + srt[2] + "/" + srt[0] + "/" + srt[1] + ".vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA",
 		}
 		key := "tile_" + strconv.FormatUint(et.X, 10) + "_" + strconv.FormatUint(et.Y, 10) + "_" + strconv.FormatUint(et.Z, 10)
 		val, _ := json.Marshal(et)
