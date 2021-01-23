@@ -217,15 +217,15 @@ func (task *Task) SetupMysqlTables() error {
 		return err
 	}
 
-	//_, err = db.Exec("create unique if not exists index name on metadata (name);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//_, err = db.Exec("create unique if not exists  index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	//if err != nil {
-	//	return err
-	//}
+	_, err = db.Exec("create unique index name on metadata (name);")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	if err != nil {
+		return err
+	}
 
 	// Load metadata.
 	for name, value := range task.MetaItems() {
@@ -536,7 +536,10 @@ func (task *Task) Download() {
 			return
 		}
 	}
-	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.savePipeSize
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.workerCount
+	http.DefaultTransport.(*http.Transport).MaxConnsPerHost = task.workerCount
+	http.DefaultTransport.(*http.Transport).IdleConnTimeout = time.Second * 5
+	http.DefaultTransport.(*http.Transport).MaxIdleConns = task.workerCount
 	go task.savePipe()
 	//g orb.Geometry, minz int, maxz int
 	task.Bar = pb.New64(task.Total).Prefix("Task : ")
