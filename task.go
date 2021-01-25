@@ -414,6 +414,10 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 	defer func() {
 		<-task.workers
 	}()
+	if int(t.Z) > task.Max || int(t.Z) < task.Min {
+		log.Errorf("error tile zoom %v", t)
+		return
+	}
 	if task.needCheck {
 		var ts DBTiles
 		flpY := (1 << uint32(t.Z)) - t.Y - 1

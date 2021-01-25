@@ -7,7 +7,7 @@ require (
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/gomodule/redigo v1.8.3
 	github.com/mattn/go-runewidth v0.0.9 // indirect
-	github.com/mattn/go-sqlite3 v1.14.2 // indirect
+	github.com/mattn/go-sqlite3 v1.14.2
 	github.com/paulmach/orb v0.2.1
 	github.com/shaxbee/go-spatialite v0.0.0-20180425212100-9b4c81899e0e
 	github.com/sirupsen/logrus v1.6.0
