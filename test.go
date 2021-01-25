@@ -31,7 +31,7 @@ func test() {
 	exportTileToSqlite(13)
 }
 func exportTileToSqlite(zoom int) {
-	mysql, _ := sql.Open("mysql", "csnight:qnyh@123@tcp(127.0.0.1:3306)/street-v8")
+	mysql, _ := sql.Open("mysql", "csnight:qnyh@123@tcp(127.0.0.1:3306)/streets-v8")
 	sqlite, err := sql.Open("sqlite3", "output/streets-v8.mbtiles")
 	if err != nil {
 		return
