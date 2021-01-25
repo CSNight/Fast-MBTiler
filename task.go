@@ -54,6 +54,7 @@ type Task struct {
 	outformat          string
 	redisPool          redis.Pool
 	conn               string
+	needCheck          bool
 }
 
 //NewTask 创建下载任务
@@ -103,6 +104,7 @@ func NewTask(layers []Layer, m TileMap) *Task {
 			return redis.Dial("tcp", "127.0.0.1:6379")
 		},
 	}
+	task.needCheck = false
 	return &task
 }
 
@@ -217,15 +219,15 @@ func (task *Task) SetupMysqlTables() error {
 		return err
 	}
 
-	_, err = db.Exec("create unique index name on metadata (name);")
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	if err != nil {
-		return err
-	}
+	//_, err = db.Exec("create unique index name on metadata (name);")
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	//if err != nil {
+	//	return err
+	//}
 
 	// Load metadata.
 	for name, value := range task.MetaItems() {
@@ -330,7 +332,7 @@ func (task *Task) errToRedis(tile maptile.Tile, url string, res string) {
 		Url: url,
 		Res: res,
 	}
-	key := "tile_" + strconv.Itoa(et.X) + "_" + strconv.Itoa(et.Y) + "_" + strconv.Itoa(et.Y)
+	key := "tile_" + strconv.Itoa(et.X) + "_" + strconv.Itoa(et.Y) + "_" + strconv.Itoa(et.Z)
 	val, _ := json.Marshal(et)
 	replay, err := redis.Int64(conn.Do("hset", "fail_list", key, val))
 	if err != nil && replay > 0 {
@@ -346,7 +348,7 @@ func (task *Task) cleanFail(t maptile.Tile) {
 		}
 	}()
 	conn = task.redisPool.Get()
-	key := "tile_" + strconv.Itoa(int(t.X)) + "_" + strconv.Itoa(int(t.Y)) + "_" + strconv.Itoa(int(t.Y))
+	key := "tile_" + strconv.Itoa(int(t.X)) + "_" + strconv.Itoa(int(t.Y)) + "_" + strconv.Itoa(int(t.Z))
 	_, err := redis.Int64(conn.Do("hdel", "fail_list", key))
 	if err != nil {
 		return
@@ -412,7 +414,17 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 	defer func() {
 		<-task.workers
 	}()
-	//start := time.Now()
+	if task.needCheck {
+		var ts DBTiles
+		flpY := (1 << uint32(t.Z)) - t.Y - 1
+		err := task.db.QueryRow("select tile_row,tile_column,zoom_level from tiles where tile_row="+strconv.Itoa(int(flpY))+" and tile_column="+strconv.Itoa(int(t.X))+" and zoom_level="+strconv.Itoa(int(t.Z))).Scan(&ts.tile_row, &ts.tile_column, &ts.zoom_level)
+		if err != nil && err.Error() != "sql: no rows in result set" {
+			return
+		}
+		if err == nil && ts.zoom_level > 1 {
+			return
+		}
+	}
 	prep := func(t maptile.Tile, url string) string {
 		url = strings.Replace(url, "{x}", strconv.Itoa(int(t.X)), -1)
 		url = strings.Replace(url, "{y}", strconv.Itoa(int(t.Y)), -1)
@@ -466,7 +478,6 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 		}
 		tile.C = buf.Bytes()
 	}
-	//enable savingpipe
 	if task.outformat == "mbtiles" || task.outformat == "mysql" {
 		task.savingpipe <- tile
 	} else {
@@ -476,8 +487,12 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 	if isRetry {
 		task.cleanFail(t)
 	}
-	//secs := time.Since(start).Seconds()
-	//fmt.Printf("\ntile %v, %.3fs, %.2f kb, %s ...\n", t, secs, float32(len(body))/1024.0, pbf)
+}
+
+type DBTiles struct {
+	tile_row    int
+	tile_column int
+	zoom_level  int
 }
 
 //DownloadZoom 下载指定层级
