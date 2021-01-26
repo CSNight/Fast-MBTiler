@@ -219,15 +219,15 @@ func (task *Task) SetupMysqlTables() error {
 		return err
 	}
 
-	//_, err = db.Exec("create unique index name on metadata (name);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	//if err != nil {
-	//	return err
-	//}
+	_, err = db.Exec("create unique index name on metadata (name);")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	if err != nil {
+		return err
+	}
 
 	// Load metadata.
 	for name, value := range task.MetaItems() {
@@ -273,7 +273,6 @@ func (task *Task) savePipe() {
 				}
 				log.Errorf("save tile to mbtiles db error ~ %s", err)
 			}
-			log.Infof("save batch complete count %d", len(batch))
 			batch = []Tile{}
 		}
 	}
@@ -585,7 +584,7 @@ func (task *Task) printPipe() {
 			break
 		}
 		time.Sleep(time.Second * 5)
-		log.Debugf("pipe size %d", len(task.savingpipe))
+		log.Debugf("cache pipe size %d", len(task.savingpipe))
 	}
 }
 func (task *Task) retryLoop() {

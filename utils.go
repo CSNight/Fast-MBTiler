@@ -50,9 +50,13 @@ func saveToMysql(tiles []Tile, db *sql.DB) error {
 		return err
 	}
 	stmStr := fmt.Sprintf(sqlStr, strings.Join(valueStrings, ","))
-	_, err = tx.Exec(stmStr, bulkValues...)
+	res, err := tx.Exec(stmStr, bulkValues...)
 	err = tx.Commit()
-	time.Sleep(time.Microsecond * 50)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	log.Infof("save batch count %d,insert %d", len(tiles), rows)
 	if err != nil {
 		return err
 	}
