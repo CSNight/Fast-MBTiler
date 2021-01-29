@@ -191,7 +191,7 @@ func (task *Task) SetupMBTileTables() error {
 
 	// Load metadata.
 	for name, value := range task.MetaItems() {
-		_, err := db.Exec("insert into metadata (name, value) values (?, ?)", name, value)
+		_, err := db.Exec("insert or ignore into metadata (name, value) values (?, ?)", name, value)
 		if err != nil {
 			return err
 		}

@@ -29,6 +29,7 @@ func saveToMBTile(tiles []Tile, db *sql.DB, dt string) error {
 		}
 	}
 	err := tx.Commit()
+	log.Infof("save batch count %d", len(tiles))
 	time.Sleep(time.Microsecond * 50)
 	if err != nil {
 		return err
