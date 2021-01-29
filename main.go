@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"io"
 	"os"
 	"time"
@@ -10,9 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nested "github.com/antonfisher/nested-logrus-formatter"
-	"github.com/spf13/viper"
-
 	_ "github.com/shaxbee/go-spatialite"
+	"github.com/spf13/viper"
 )
 
 //flag
@@ -131,7 +131,28 @@ func main() {
 			layers = append(layers, layer)
 		}
 	}
+
 	task := NewTask(layers, tm)
+	r := gin.Default()
+	r.GET("/pause", func(c *gin.Context) {
+		task.pauseFun()
+		c.JSON(200, gin.H{
+			"message": "ok",
+		})
+	})
+	r.GET("/consume", func(c *gin.Context) {
+		task.playFun()
+		c.JSON(200, gin.H{
+			"message": "ok",
+		})
+	})
+	r.GET("/abort", func(c *gin.Context) {
+		task.abortFun()
+		c.JSON(200, gin.H{
+			"message": "ok",
+		})
+	})
+	go r.Run(":9100")
 	task.Download()
 	secs := time.Since(start).Seconds()
 	fmt.Printf("\n%.3fs finished...", secs)

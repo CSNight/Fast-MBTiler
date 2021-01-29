@@ -10,12 +10,12 @@
 	savepipe = 4000
 [tm]
 	name = "streets-v8"
-	min = 15
-	max = 15
+	min = 14
+	max = 14
 	format = "pbf"
 	schema = "xyz"
 	url = "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/{z}/{x}/{y}.vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA"
 [[lrs]]
-  	min = 15
-  	max = 15
+  	min = 14
+  	max = 14
   	geojson = "./geojson/global.geojson"

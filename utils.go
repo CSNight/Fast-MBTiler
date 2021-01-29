@@ -17,6 +17,7 @@ func saveToMBTile(tiles []Tile, db *sql.DB, dt string) error {
 	if dt == "mysql" {
 		return saveToMysql(tiles, db)
 	}
+	start := time.Now()
 	tx, er := db.Begin()
 	if er != nil {
 		return er
@@ -29,7 +30,8 @@ func saveToMBTile(tiles []Tile, db *sql.DB, dt string) error {
 		}
 	}
 	err := tx.Commit()
-	log.Infof("save batch count %d", len(tiles))
+	secs := time.Since(start).Microseconds()
+	log.Infof("save batch count %d,cost %d", len(tiles), secs)
 	time.Sleep(time.Microsecond * 50)
 	if err != nil {
 		return err
@@ -38,6 +40,7 @@ func saveToMBTile(tiles []Tile, db *sql.DB, dt string) error {
 }
 
 func saveToMysql(tiles []Tile, db *sql.DB) error {
+	start := time.Now()
 	sqlStr := "insert ignore into tiles (zoom_level, tile_column, tile_row, tile_data) values %s"
 	placeholder := "(?,?,?,?)"
 	bulkValues := []interface{}{}
@@ -57,7 +60,8 @@ func saveToMysql(tiles []Tile, db *sql.DB) error {
 		return err
 	}
 	rows, err := res.RowsAffected()
-	log.Infof("save batch count %d,insert %d", len(tiles), rows)
+	secs := time.Since(start).Microseconds()
+	log.Infof("save batch count %d,insert %d,cost %d", len(tiles), rows, secs)
 	if err != nil {
 		return err
 	}
