@@ -30,7 +30,7 @@ func saveToMBTile(tiles []Tile, db *sql.DB, dt string) error {
 		}
 	}
 	err := tx.Commit()
-	secs := time.Since(start).Microseconds()
+	secs := time.Since(start).Milliseconds()
 	log.Infof("save batch count %d,cost %d", len(tiles), secs)
 	time.Sleep(time.Microsecond * 50)
 	if err != nil {
@@ -60,7 +60,7 @@ func saveToMysql(tiles []Tile, db *sql.DB) error {
 		return err
 	}
 	rows, err := res.RowsAffected()
-	secs := time.Since(start).Microseconds()
+	secs := time.Since(start).Milliseconds()
 	log.Infof("save batch count %d,insert %d,cost %d", len(tiles), rows, secs)
 	if err != nil {
 		return err

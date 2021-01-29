@@ -179,15 +179,15 @@ func (task *Task) SetupMBTileTables() error {
 		return err
 	}
 
-	//_, err = db.Exec("create unique index name on metadata (name);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	//if err != nil {
-	//	return err
-	//}
+	_, err = db.Exec("create unique index name on metadata (name);")
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	if err != nil {
+		return err
+	}
 
 	// Load metadata.
 	for name, value := range task.MetaItems() {
