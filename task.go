@@ -449,7 +449,7 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 	}()
 	if resp.StatusCode != 200 {
 		if resp.StatusCode != 404 {
-			log.Errorf("fetch %v tile error, status code: %d ~", pbf, resp.StatusCode)
+			log.Errorf("fetch %v tile error, status code: %d ~", t, resp.StatusCode)
 		}
 		task.errToRedis(t, url, "resp "+strconv.Itoa(resp.StatusCode))
 		return

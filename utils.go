@@ -80,7 +80,15 @@ func saveToFiles(tile Tile, rootdir string) error {
 }
 
 func optimizeConnection(db *sql.DB) error {
-	_, err := db.Exec("PRAGMA synchronous=1")
+	_, err := db.Exec("PRAGMA synchronous=OFF")
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec("PRAGMA cache_size=8000")
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec("PRAGMA page_size=4096")
 	if err != nil {
 		return err
 	}
