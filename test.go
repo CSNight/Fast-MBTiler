@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,11 +27,27 @@ type record struct {
 	tile_column int
 	tile_data   []byte
 }
+type exportRec struct {
+	wg         sync.WaitGroup
+	workers    chan *sql.Rows
+	savingpipe chan []record
+	complete   bool
+}
 
 func test() {
 	exportTileToSqlite(13)
 }
+
+type cur struct {
+	Zoom   int
+	Offset int
+	Max    int
+}
+
 func exportTileToSqlite(zoom int) {
+	task := exportRec{}
+	task.workers = make(chan *sql.Rows, 3)
+	task.savingpipe = make(chan []record, 10)
 	mysql, _ := sql.Open("mysql", "csnight:qnyh@123@tcp(127.0.0.1:3306)/streets-v8")
 	sqlite, err := sql.Open("sqlite3", "output/streets-v8.mbtiles")
 	if err != nil {
@@ -45,6 +62,14 @@ func exportTileToSqlite(zoom int) {
 		return
 	}
 	_, err = sqlite.Exec("PRAGMA journal_mode=OFF")
+	if err != nil {
+		return
+	}
+	_, err = sqlite.Exec("PRAGMA page_size=4096")
+	if err != nil {
+		return
+	}
+	_, err = sqlite.Exec("PRAGMA cache_size=8000")
 	if err != nil {
 		return
 	}
@@ -64,34 +89,58 @@ func exportTileToSqlite(zoom int) {
 		if offset > max.maxCol {
 			break
 		}
-		tx, er := sqlite.Begin()
-		if er != nil {
+		select {
+		case task.workers <- rows:
+			task.wg.Add(1)
+			go task.genRec(rows)
 			offset++
-			continue
 		}
-		sqlStr := "insert or ignore into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?);"
-		var roc = 0
-		for rows.Next() {
-			var tr record
-			rows.Scan(&tr.zoom_level, &tr.tile_column, &tr.tile_row, &tr.tile_data)
-			_, err := tx.Exec(sqlStr, tr.zoom_level, tr.tile_column, tr.tile_row, tr.tile_data)
-			count++
-			roc++
-			if err != nil {
-				continue
-			}
-		}
-		log.Infof("batch %d complete", roc)
-		err = tx.Commit()
-		time.Sleep(time.Microsecond * 50)
-		if err != nil {
-			offset++
-			continue
-		}
-		offset++
 	}
+	task.wg.Wait()
+	task.complete = true
 	log.Infof("total %d", count)
 }
+func (task *exportRec) genRec(rows *sql.Rows) {
+	var recs []record
+	for rows.Next() {
+		var tr record
+		rows.Scan(&tr.zoom_level, &tr.tile_column, &tr.tile_row, &tr.tile_data)
+		recs = append(recs, tr)
+	}
+	task.savingpipe <- recs
+	task.wg.Done()
+}
+func (task *exportRec) savePipe(db *sql.DB) {
+	for rec := range task.savingpipe {
+		err := task.saveToSqlite(rec, db)
+		if err != nil {
+			log.Errorf("save tile to mbtiles db error ~ %s", err)
+		}
+	}
+}
+func (task *exportRec) saveToSqlite(rows []record, sqlite *sql.DB) error {
+	start := time.Now()
+	tx, er := sqlite.Begin()
+	if er != nil {
+		return er
+	}
+	sqlStr := "insert or ignore into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?);"
+	var roc = 0
+	for rec := range rows {
+		_, err := tx.Exec(sqlStr, rows[rec].zoom_level, rows[rec].tile_column, rows[rec].tile_row, rows[rec].tile_data)
+		roc++
+		if err != nil {
+			continue
+		}
+	}
+	err := tx.Commit()
+	log.Infof("batch %d complete,cost %d", roc, time.Since(start).Milliseconds())
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func exportRedisToLog() {
 	f, err := os.OpenFile("errTile.txt", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
