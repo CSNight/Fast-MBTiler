@@ -191,7 +191,7 @@ func (task *Task) SetupMBTileTables() error {
 
 	// Load metadata.
 	for name, value := range task.MetaItems() {
-		_, err := db.Exec("insert into metadata (name, value) values (?, ?)", name, value)
+		_, err := db.Exec("insert or ignore into metadata (name, value) values (?, ?)", name, value)
 		if err != nil {
 			return err
 		}
@@ -520,6 +520,10 @@ func (task *Task) downloadLayer(layer Layer) {
 			log.Infof("task %s got canceled.", task.ID)
 			close(tilelist)
 		case <-task.pause:
+			bar.Increment()
+			task.Bar.Increment()
+			task.wg.Add(1)
+			go task.tileFetcher(tile, layer.URL, false)
 			log.Infof("task %s suspended.", task.ID)
 			select {
 			case <-task.play:
@@ -529,6 +533,7 @@ func (task *Task) downloadLayer(layer Layer) {
 				close(tilelist)
 			}
 		}
+
 	}
 	task.wg.Wait()
 	bar.FinishPrint(fmt.Sprintf("Task %s zoom %d finished ~", task.ID, layer.Zoom))

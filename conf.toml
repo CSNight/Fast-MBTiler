@@ -2,32 +2,20 @@
 	version = "v 0.1.0"
 	title = "MapCloud Tiler"
 [output]
-	#can be mbtiles/file
-	format ="mysql"
+	format ="mbtiles"
 	conn="csnight:qnyh@123@tcp(127.0.0.1:3306)/streets-v8"
-	#the output dir
 	directory ="output"
 [task]
-	#number of fetchers
 	workers = 512
-	#number of savers
-	savepipe = 3000
+	savepipe = 4000
 [tm]
-	#name for mbtiles
 	name = "streets-v8"
-	#max and min level for mbtiles
 	min = 14
 	max = 14
-	#can be pbf/png/jpg
 	format = "pbf"
-	#can be xyz/tm
 	schema = "xyz"
-	#the vector tiles metadata tilejson
-	# json = ""
-	#url is the schema url of tiles
 	url = "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/{z}/{x}/{y}.vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA"
-#lrs can set diff boundaries for diff levels
-  [[lrs]]
+[[lrs]]
   	min = 14
   	max = 14
   	geojson = "./geojson/global.geojson"
