@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	nested "github.com/antonfisher/nested-logrus-formatter"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gomodule/redigo/redis"
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -29,25 +31,41 @@ type record struct {
 }
 type exportRec struct {
 	wg         sync.WaitGroup
-	workers    chan *sql.Rows
+	workers    chan cur
 	savingpipe chan []record
 	complete   bool
 }
-
-func test() {
-	exportTileToSqlite(13)
+type cur struct {
+	zoom   int
+	column int
+	max    int
 }
 
-type cur struct {
-	Zoom   int
-	Offset int
-	Max    int
+func main() {
+	exportTileToSqlite(14)
 }
 
 func exportTileToSqlite(zoom int) {
+	log.SetFormatter(&nested.Formatter{
+		HideKeys:        true,
+		ShowFullLevel:   true,
+		TimestampFormat: "2006-01-02 15:04:05.000",
+		// FieldsOrder: []string{"component", "category"},
+	})
+	// then wrap the log output with it
+	file, err := os.OpenFile("export.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	writers := []io.Writer{file, os.Stdout}
+	//同时写文件和屏幕
+	fileWriter := io.MultiWriter(writers...)
+	if err == nil {
+		log.SetOutput(fileWriter)
+	} else {
+		log.Info("failed to log to file.")
+	}
+	log.SetLevel(log.DebugLevel)
 	task := exportRec{}
-	task.workers = make(chan *sql.Rows, 3)
-	task.savingpipe = make(chan []record, 10)
+	task.workers = make(chan cur, 8)
+	task.savingpipe = make(chan []record, 16)
 	mysql, _ := sql.Open("mysql", "csnight:qnyh@123@tcp(127.0.0.1:3306)/streets-v8")
 	sqlite, err := sql.Open("sqlite3", "output/streets-v8.mbtiles")
 	if err != nil {
@@ -80,27 +98,38 @@ func exportTileToSqlite(zoom int) {
 	err = mysql.QueryRow("select max(tile_column) as maxCol from tiles where zoom_level=" + strconv.Itoa(zoom)).Scan(&max.maxCol)
 	var offset = 0
 	var count = 0
+	go task.savePipe(sqlite)
 	for true {
-		rows, err := mysql.Query("select * from tiles where zoom_level=" + strconv.Itoa(zoom) + " and tile_column=" + strconv.Itoa(offset) + " limit " + strconv.Itoa(max.maxCol+1000))
-		if err != nil {
-			offset++
-			continue
-		}
 		if offset > max.maxCol {
 			break
 		}
-		select {
-		case task.workers <- rows:
-			task.wg.Add(1)
-			go task.genRec(rows)
-			offset++
+		cursor := cur{
+			zoom:   zoom,
+			column: offset,
+			max:    max.maxCol,
 		}
+		select {
+		case task.workers <- cursor:
+			task.wg.Add(1)
+			go task.genRec(mysql, cursor)
+			offset++
+			count++
+		}
+		time.Sleep(time.Millisecond * 100)
 	}
 	task.wg.Wait()
 	task.complete = true
 	log.Infof("total %d", count)
 }
-func (task *exportRec) genRec(rows *sql.Rows) {
+func (task *exportRec) genRec(mysql *sql.DB, cursor cur) {
+	defer task.wg.Done()
+	defer func() {
+		<-task.workers
+	}()
+	rows, err := mysql.Query("select * from tiles where zoom_level=" + strconv.Itoa(cursor.zoom) + " and tile_column=" + strconv.Itoa(cursor.column) + " limit " + strconv.Itoa(cursor.max+1000))
+	if err != nil {
+		return
+	}
 	var recs []record
 	for rows.Next() {
 		var tr record
@@ -108,7 +137,6 @@ func (task *exportRec) genRec(rows *sql.Rows) {
 		recs = append(recs, tr)
 	}
 	task.savingpipe <- recs
-	task.wg.Done()
 }
 func (task *exportRec) savePipe(db *sql.DB) {
 	for rec := range task.savingpipe {
@@ -134,7 +162,7 @@ func (task *exportRec) saveToSqlite(rows []record, sqlite *sql.DB) error {
 		}
 	}
 	err := tx.Commit()
-	log.Infof("batch %d complete,cost %d", roc, time.Since(start).Milliseconds())
+	log.Infof("offset %d,batch %d complete,cost %d", rows[0].tile_column, roc, time.Since(start).Milliseconds())
 	if err != nil {
 		return err
 	}
