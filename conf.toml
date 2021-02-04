@@ -14,5 +14,5 @@
 	max = 10
 	format = "pbf"
 	schema = "xyz"
-	url = "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/{z}/{x}/{y}.vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJja2txOHZrYWUzMzd3MnZxdGQ1eDg3ZXdhIn0.HvDPOpBcNCqTymjZS9cXXQ"
+	url = "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/{z}/{x}/{y}.vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA"
     bound = '{"west":-179.999999,"south":-85,"north":84.999999,"east":179.999999}'

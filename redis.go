@@ -48,7 +48,7 @@ func (task *Task) saveCursor() {
 	conn = task.redisPool.Get()
 	replay, err := redis.Int64(conn.Do("set", "cursor:"+task.ID, strconv.Itoa(task.CurZoom)+":"+strconv.Itoa(task.CurCol)))
 	if err != nil && replay < 0 {
-		log.Warnf("redis save cursor failure")
+		log.Errorf("redis save cursor failure")
 	}
 }
 func (task *Task) saveFailedToRedis(batch []Tile) {
@@ -60,7 +60,7 @@ func (task *Task) saveFailedToRedis(batch []Tile) {
 func (task *Task) closeRedisConn(conn redis.Conn) {
 	err := conn.Close()
 	if err != nil {
-		log.Warnf("redis connection close failure")
+		log.Errorf("redis connection close failure")
 	}
 }
 
@@ -81,12 +81,12 @@ func (task *Task) errToRedis(tile TileXyz, res string) {
 	if res == "nil tile" || res == "resp 404" {
 		replay, err := redis.Int64(conn.Do("hset", "nil_list:"+task.ID, key, val))
 		if err != nil && replay < 0 {
-			log.Warnf("redis save tile failure")
+			log.Errorf("redis save tile failure")
 		}
 	} else {
 		replay, err := redis.Int64(conn.Do("hset", "fail_list:"+task.ID, key, val))
 		if err != nil && replay < 0 {
-			log.Warnf("redis save tile failure")
+			log.Errorf("redis save tile failure")
 		}
 	}
 }

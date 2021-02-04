@@ -25,6 +25,17 @@ import (
 //MBTileVersion mbtiles版本号
 const MBTileVersion = "1.2"
 
+type State int
+
+const (
+	Initialize State = iota
+	Running
+	Pause
+	Ending
+	Aborting
+	Terminated
+)
+
 //Task 下载任务
 type Task struct {
 	ID                 string
@@ -46,9 +57,7 @@ type Task struct {
 	abort, pause, play chan struct{}
 	workers            chan TileXyz
 	savingpipe         chan Tile
-	complete           bool
-	end                bool
-	abortSign          bool
+	signal             State
 	outformat          string
 	redisPool          redis.Pool
 	conn               string
@@ -69,9 +78,7 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 		CurZoom:      m.Min,
 		StartCol:     -1,
 		TileMap:      m,
-		complete:     false,
-		end:          false,
-		abortSign:    false,
+		signal:       Initialize,
 		abort:        make(chan struct{}),
 		pause:        make(chan struct{}),
 		play:         make(chan struct{}),
@@ -108,14 +115,14 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 	task.workers = make(chan TileXyz, task.workerCount)
 	task.savingpipe = make(chan Tile, task.savePipeSize)
 	if task.outformat == "mbtiles" {
-		err := task.SetupMBTileTables()
+		err := task.SetupMBTileTables(id != "")
 		if err != nil {
 			log.Errorf("Database connect and prepare error")
 			return nil, err
 		}
 	}
 	if task.outformat == "mysql" {
-		err := task.SetupMysqlTables()
+		err := task.SetupMysqlTables(id != "")
 		if err != nil {
 			log.Errorf("Database connect and prepare error")
 			return nil, err
@@ -152,8 +159,7 @@ func (task *Task) MetaItems() map[string]string {
 	return data
 }
 
-//SetupMBTileTables 初始化配置MBTile库
-func (task *Task) SetupMBTileTables() error {
+func (task *Task) SetupMBTileTables(ignore bool) error {
 	if task.File == "" {
 		outdir := viper.GetString("output.directory")
 		os.MkdirAll(outdir, os.ModePerm)
@@ -179,21 +185,22 @@ func (task *Task) SetupMBTileTables() error {
 		return err
 	}
 
-	//_, err = db.Exec("create unique index name on metadata (name);")
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	//if err != nil {
-	//	return err
-	//}
-
-	// Load metadata.
-	for name, value := range task.MetaItems() {
-		_, err := db.Exec("insert or ignore into metadata (name, value) values (?, ?)", name, value)
+	if !ignore {
+		_, err = db.Exec("create unique index name on metadata (name);")
 		if err != nil {
 			return err
+		}
+
+		_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
+		if err != nil {
+			return err
+		}
+		// Load metadata.
+		for name, value := range task.MetaItems() {
+			_, err := db.Exec("insert or ignore into metadata (name, value) values (?, ?)", name, value)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -201,8 +208,7 @@ func (task *Task) SetupMBTileTables() error {
 	return nil
 }
 
-//SetupMBTileTables 初始化配置MBTile库
-func (task *Task) SetupMysqlTables() error {
+func (task *Task) SetupMysqlTables(ignore bool) error {
 	db, err := sql.Open("mysql", task.conn)
 	if err != nil {
 		return err
@@ -218,22 +224,23 @@ func (task *Task) SetupMysqlTables() error {
 	if err != nil {
 		return err
 	}
-
-	_, err = db.Exec("create unique index name on metadata (name);")
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	if err != nil {
-		return err
-	}
-
-	// Load metadata.
-	for name, value := range task.MetaItems() {
-		_, err := db.Exec("insert ignore into metadata (name, value) values (?, ?)", name, value)
+	if !ignore {
+		_, err = db.Exec("create unique index name on metadata (name);")
 		if err != nil {
 			return err
+		}
+
+		_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
+		if err != nil {
+			return err
+		}
+
+		// Load metadata.
+		for name, value := range task.MetaItems() {
+			_, err := db.Exec("insert ignore into metadata (name, value) values (?, ?)", name, value)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	task.db = db //保存任务的库连接
@@ -242,11 +249,10 @@ func (task *Task) SetupMysqlTables() error {
 
 func (task *Task) abortFun() {
 	task.abort <- struct{}{}
-	task.abortSign = true
-	task.end = true
+	task.signal = Aborting
 	go func() {
 		for true {
-			if task.complete {
+			if task.signal == Terminated {
 				task.saveCursor()
 				_ = task.redisPool.Close()
 				_ = task.db.Close()
@@ -259,10 +265,12 @@ func (task *Task) abortFun() {
 
 func (task *Task) pauseFun() {
 	task.pause <- struct{}{}
+	task.signal = Pause
 }
 
 func (task *Task) playFun() {
 	task.play <- struct{}{}
+	task.signal = Running
 }
 
 //SavePipe 保存瓦片管道
@@ -279,7 +287,7 @@ func (task *Task) savePipe() {
 			batch = []Tile{}
 		}
 	}
-	if task.end {
+	if task.signal < Terminated {
 		err := saveToMBTile(batch, task.db, task.outformat)
 		if err != nil {
 			task.saveFailedToRedis(batch)
@@ -290,7 +298,7 @@ func (task *Task) savePipe() {
 		batch = []Tile{}
 	}
 	task.wg.Done()
-	task.complete = true
+	task.signal = Terminated
 }
 
 //SaveTile 保存瓦片
@@ -359,7 +367,7 @@ func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 		tile.C = buf.Bytes()
 	}
 	if task.outformat == "mbtiles" || task.outformat == "mysql" {
-		if !task.abortSign {
+		if task.signal < Aborting {
 			task.savingpipe <- tile
 		}
 	} else {
@@ -391,6 +399,7 @@ func (task *Task) downloadLayer(layer TileOption) {
 		}
 		if task.CurCol != tile.X {
 			task.CurCol = tile.X
+			task.saveCursor()
 		}
 		count := bar.Get()
 		if count > 0 && count%10000000 == 0 {
@@ -424,25 +433,26 @@ func (task *Task) downloadLayer(layer TileOption) {
 
 //Download 开启下载任务
 func (task *Task) Download() {
+	task.signal = Running
 	go task.savePipe()
 	go task.printPipe()
 	go task.retryLoop()
 	for _, layer := range task.Layers {
-		if layer.Zoom >= task.MinZoom && !task.abortSign {
+		if layer.Zoom >= task.MinZoom && task.signal < Pause {
 			task.CurZoom = layer.Zoom
 			task.downloadLayer(layer)
 		}
 	}
-	task.end = true
+	task.signal = Ending
 	task.wg.Add(1)
 	close(task.savingpipe)
 	task.wg.Wait()
-	task.complete = true
+	task.signal = Terminated
 	log.Infof("task %s finished ~", task.ID)
 }
 func (task *Task) printPipe() {
 	for true {
-		if task.complete {
+		if task.signal == Terminated {
 			break
 		}
 		time.Sleep(time.Second * 5)
@@ -453,7 +463,7 @@ func (task *Task) retryLoop() {
 	for true {
 		task.retry()
 		time.Sleep(time.Second * 5)
-		if task.complete {
+		if task.signal == Terminated {
 			break
 		}
 	}
