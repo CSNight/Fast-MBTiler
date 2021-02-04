@@ -4,18 +4,15 @@
 [output]
 	format ="mbtiles"
 	conn="csnight:qnyh@123@tcp(127.0.0.1:3306)/streets-v8"
-	directory ="output"
 [task]
 	workers = 512
 	savepipe = 4000
+    redis = "127.0.0.1:6379"
 [tm]
 	name = "streets-v8"
-	min = 14
-	max = 14
+	min = 0
+	max = 10
 	format = "pbf"
 	schema = "xyz"
-	url = "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/{z}/{x}/{y}.vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA"
-[[lrs]]
-  	min = 14
-  	max = 14
-  	geojson = "./geojson/global.geojson"
+	url = "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/{z}/{x}/{y}.vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJja2txOHZrYWUzMzd3MnZxdGQ1eDg3ZXdhIn0.HvDPOpBcNCqTymjZS9cXXQ"
+    bound = '{"west":-179.999999,"south":-85,"north":84.999999,"east":179.999999}'

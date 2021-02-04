@@ -4,16 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"database/sql"
-	"encoding/json"
+	"errors"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gomodule/redigo/redis"
-	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/maptile"
-	"github.com/paulmach/orb/maptile/tilecover"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"github.com/teris-io/shortid"
 	pb "gopkg.in/cheggaaa/pb.v1"
 	"io/ioutil"
 	"net/http"
@@ -34,105 +31,108 @@ type Task struct {
 	Name               string
 	Description        string
 	File               string
-	Min                int
-	Max                int
-	Layers             []Layer
+	MinZoom            int
+	MaxZoom            int
+	CurCol             int
+	CurZoom            int
+	StartCol           int
+	Layers             []TileOption
 	TileMap            TileMap
-	Total              int64
-	Current            int64
-	Bar                *pb.ProgressBar
+	Total              int
 	db                 *sql.DB
 	workerCount        int
 	savePipeSize       int
-	bufSize            int
 	wg                 sync.WaitGroup
 	abort, pause, play chan struct{}
-	workers            chan maptile.Tile
+	workers            chan TileXyz
 	savingpipe         chan Tile
-	tileSet            Set
 	complete           bool
+	end                bool
+	abortSign          bool
 	outformat          string
 	redisPool          redis.Pool
 	conn               string
-	needCheck          bool
 }
 
 //NewTask 创建下载任务
-func NewTask(layers []Layer, m TileMap) *Task {
+func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 	if len(layers) == 0 {
-		return nil
+		return nil, errors.New("empty layer")
 	}
-	id, _ := shortid.Generate()
-
 	task := Task{
-		ID:      id,
-		Name:    m.Name,
-		Layers:  layers,
-		Min:     m.Min,
-		Max:     m.Max,
-		TileMap: m,
+		ID:           uuid.New().String(),
+		Name:         m.Name,
+		Layers:       layers,
+		MinZoom:      m.Min,
+		MaxZoom:      m.Max,
+		CurCol:       0,
+		CurZoom:      m.Min,
+		StartCol:     -1,
+		TileMap:      m,
+		complete:     false,
+		end:          false,
+		abortSign:    false,
+		abort:        make(chan struct{}),
+		pause:        make(chan struct{}),
+		play:         make(chan struct{}),
+		workerCount:  viper.GetInt("task.workers"),
+		savePipeSize: viper.GetInt("task.savepipe"),
+		outformat:    viper.GetString("output.format"),
+		conn:         viper.GetString("output.conn"),
+		redisPool: redis.Pool{
+			MaxIdle:     16,
+			MaxActive:   32,
+			IdleTimeout: 120,
+			Dial: func() (redis.Conn, error) {
+				return redis.Dial("tcp", "127.0.0.1:6379")
+			},
+		},
 	}
-
+	if id != "" {
+		task.ID = id
+	}
+	cz, cx := task.getCursor()
+	if cz != -1 && cx != -1 {
+		task.MinZoom = cz
+		task.StartCol = cx
+	} else {
+		task.StartCol = -1
+	}
 	for i := 0; i < len(layers); i++ {
 		if layers[i].URL == "" {
 			layers[i].URL = m.URL
 		}
-		t := time.Now()
-		layers[i].Count = tilecover.CollectionCount(layers[i].Collection, maptile.Zoom(layers[i].Zoom))
-		fmt.Println(time.Since(t))
-		fmt.Println(layers[i].Zoom, layers[i].Count)
+		layers[i].Count = GetTileCount(&layers[i].Bound, layers[i].Zoom)
 		task.Total += layers[i].Count
 	}
-	task.abort = make(chan struct{})
-	task.pause = make(chan struct{})
-	task.play = make(chan struct{})
-
-	task.workerCount = viper.GetInt("task.workers")
-	task.savePipeSize = viper.GetInt("task.savepipe")
-	task.workers = make(chan maptile.Tile, task.workerCount)
+	task.workers = make(chan TileXyz, task.workerCount)
 	task.savingpipe = make(chan Tile, task.savePipeSize)
-	task.bufSize = viper.GetInt("task.mergebuf")
-	task.tileSet = Set{M: make(maptile.Set)}
-	task.complete = false
-	task.outformat = viper.GetString("output.format")
-	task.conn = viper.GetString("output.conn")
-	task.redisPool = redis.Pool{
-		MaxIdle:     16,
-		MaxActive:   32,
-		IdleTimeout: 120,
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", "127.0.0.1:6379")
-		},
-	}
-	task.needCheck = false
-	return &task
-}
-
-//Bound 范围
-func (task *Task) Bound() orb.Bound {
-	bound := orb.Bound{Min: orb.Point{1, 1}, Max: orb.Point{-1, -1}}
-	for _, layer := range task.Layers {
-		for _, g := range layer.Collection {
-			bound = bound.Union(g.Bound())
+	if task.outformat == "mbtiles" {
+		err := task.SetupMBTileTables()
+		if err != nil {
+			log.Errorf("Database connect and prepare error")
+			return nil, err
 		}
 	}
-	return bound
-}
-
-//Center 中心点
-func (task *Task) Center() orb.Point {
-	layer := task.Layers[len(task.Layers)-1]
-	bound := orb.Bound{Min: orb.Point{1, 1}, Max: orb.Point{-1, -1}}
-	for _, g := range layer.Collection {
-		bound = bound.Union(g.Bound())
+	if task.outformat == "mysql" {
+		err := task.SetupMysqlTables()
+		if err != nil {
+			log.Errorf("Database connect and prepare error")
+			return nil, err
+		}
 	}
-	return bound.Center()
+	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.workerCount
+	http.DefaultTransport.(*http.Transport).MaxConnsPerHost = task.workerCount
+	http.DefaultTransport.(*http.Transport).IdleConnTimeout = time.Second * 5
+	http.DefaultTransport.(*http.Transport).MaxIdleConns = task.workerCount
+	return &task, nil
 }
 
 //MetaItems 输出
 func (task *Task) MetaItems() map[string]string {
-	b := task.Bound()
-	c := task.Center()
+	b := task.Layers[len(task.Layers)-1].Bound
+	x := (b.East - b.West) / 2
+	y := (b.South - b.North) / 2
 	data := map[string]string{
 		"id":          task.ID,
 		"name":        task.Name,
@@ -141,13 +141,13 @@ func (task *Task) MetaItems() map[string]string {
 		"basename":    task.TileMap.Name,
 		"format":      task.TileMap.Format,
 		"type":        task.TileMap.Schema,
-		"pixel_scale": strconv.Itoa(TileSize),
+		"pixel_scale": strconv.Itoa(256),
 		"version":     MBTileVersion,
-		"bounds":      fmt.Sprintf(`%f,%f,%f,%f`, b.Left(), b.Bottom(), b.Right(), b.Top()),
-		"center":      fmt.Sprintf(`%f,%f,%d`, c.X(), c.Y(), (task.Min+task.Max)/2),
-		"minzoom":     strconv.Itoa(task.Min),
-		"maxzoom":     strconv.Itoa(task.Max),
-		"json":        task.TileMap.JSON,
+		"bounds":      fmt.Sprintf(`%f,%f,%f,%f`, b.West, b.South, b.East, b.North),
+		"center":      fmt.Sprintf(`%f,%f,%d`, x, y, (task.MinZoom+task.MaxZoom)/2),
+		"minzoom":     strconv.Itoa(task.MinZoom),
+		"maxzoom":     strconv.Itoa(task.MaxZoom),
+		"json":        task.TileMap.Bound,
 	}
 	return data
 }
@@ -179,15 +179,15 @@ func (task *Task) SetupMBTileTables() error {
 		return err
 	}
 
-	_, err = db.Exec("create unique index name on metadata (name);")
-	if err != nil {
-		return err
-	}
-
-	_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
-	if err != nil {
-		return err
-	}
+	//_, err = db.Exec("create unique index name on metadata (name);")
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
+	//if err != nil {
+	//	return err
+	//}
 
 	// Load metadata.
 	for name, value := range task.MetaItems() {
@@ -236,26 +236,32 @@ func (task *Task) SetupMysqlTables() error {
 			return err
 		}
 	}
-
 	task.db = db //保存任务的库连接
 	return nil
 }
 
 func (task *Task) abortFun() {
-	// os.Stdin.Read(make([]byte, 1)) // read a single byte
-	// <-time.After(8 * time.Second)
 	task.abort <- struct{}{}
+	task.abortSign = true
+	task.end = true
+	go func() {
+		for true {
+			if task.complete {
+				task.saveCursor()
+				_ = task.redisPool.Close()
+				_ = task.db.Close()
+				break
+			}
+			time.Sleep(time.Second * 2)
+		}
+	}()
 }
 
 func (task *Task) pauseFun() {
-	// os.Stdin.Read(make([]byte, 1)) // read a single byte
-	// <-time.After(3 * time.Second)
 	task.pause <- struct{}{}
 }
 
 func (task *Task) playFun() {
-	// os.Stdin.Read(make([]byte, 1)) // read a single byte
-	// <-time.After(5 * time.Second)
 	task.play <- struct{}{}
 }
 
@@ -267,173 +273,52 @@ func (task *Task) savePipe() {
 		if len(batch) == task.savePipeSize {
 			err := saveToMBTile(batch, task.db, task.outformat)
 			if err != nil {
-				task.retryConnect()
-				saveToMBTile(batch, task.db, task.outformat)
+				task.saveFailedToRedis(batch)
 				log.Errorf("save tile to mbtiles db error ~ %s", err)
 			}
 			batch = []Tile{}
 		}
 	}
-	if task.complete {
+	if task.end {
 		err := saveToMBTile(batch, task.db, task.outformat)
 		if err != nil {
-			task.retryConnect()
-			saveToMBTile(batch, task.db, task.outformat)
+			task.saveFailedToRedis(batch)
 			log.Errorf("save tile to mbtiles db error ~ %s", err)
+		} else {
+			log.Infof("save batch complete count %d", len(batch))
 		}
-		log.Infof("save batch complete count %d", len(batch))
 		batch = []Tile{}
 	}
 	task.wg.Done()
-}
-func (task *Task) retryConnect() {
-	if task.db != nil {
-		err := task.db.Close()
-		if err != nil {
-			time.Sleep(time.Millisecond * 500)
-			task.retryConnect()
-		}
-	}
-	task.db = nil
-	time.Sleep(time.Millisecond * 100)
-	err := task.SetupMBTileTables()
-	if err != nil {
-		time.Sleep(time.Millisecond * 500)
-		task.retryConnect()
-	}
-}
-
-type ErrTile struct {
-	X   int    `json:"x"`
-	Y   int    `json:"y"`
-	Z   int    `json:"z"`
-	Res string `json:"res"`
-	Url string `json:"url"`
-}
-
-func (task *Task) errToRedis(tile maptile.Tile, url string, res string) {
-	var conn redis.Conn
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Warnf("redis connection close failure")
-		}
-	}()
-	conn = task.redisPool.Get()
-	et := ErrTile{
-		X:   int(tile.X),
-		Y:   int(tile.Y),
-		Z:   int(tile.Z),
-		Url: url,
-		Res: res,
-	}
-	key := "tile_" + strconv.Itoa(et.X) + "_" + strconv.Itoa(et.Y) + "_" + strconv.Itoa(et.Z)
-	val, _ := json.Marshal(et)
-	replay, err := redis.Int64(conn.Do("hset", "fail_list", key, val))
-	if err != nil && replay > 0 {
-		log.Warnf("redis save tile failure")
-	}
-}
-func (task *Task) cleanFail(t maptile.Tile) {
-	var conn redis.Conn
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Warnf("redis connection close failure")
-		}
-	}()
-	conn = task.redisPool.Get()
-	key := "tile_" + strconv.Itoa(int(t.X)) + "_" + strconv.Itoa(int(t.Y)) + "_" + strconv.Itoa(int(t.Z))
-	_, err := redis.Int64(conn.Do("hdel", "fail_list", key))
-	if err != nil {
-		return
-	}
-}
-func (task *Task) retry() {
-	var conn redis.Conn
-	var alls map[string]string
-	defer func() {
-		for kv := range alls {
-			var te ErrTile
-			_ = json.Unmarshal([]byte(alls[kv]), &te)
-			if te.Res == "nil tile" || te.Res == "resp 404" {
-				continue
-			}
-			conn.Do("hdel", "fail_list", kv)
-		}
-		err := conn.Close()
-		if err != nil {
-			log.Warnf("redis connection close failure")
-		}
-	}()
-	conn = task.redisPool.Get()
-	alls, err := redis.StringMap(conn.Do("hgetall", "fail_list"))
-	if err != nil {
-		return
-	}
-	for kv := range alls {
-		var te ErrTile
-		err = json.Unmarshal([]byte(alls[kv]), &te)
-		if err != nil {
-			continue
-		}
-		if te.Res == "nil tile" || te.Res == "resp 404" {
-			continue
-		}
-		tile := maptile.Tile{
-			X: uint32(te.X),
-			Y: uint32(te.X),
-			Z: maptile.Zoom(uint32(te.Z)),
-		}
-		select {
-		case task.workers <- tile:
-			task.wg.Add(1)
-			go task.tileFetcher(tile, te.Url, true)
-		}
-	}
+	task.complete = true
 }
 
 //SaveTile 保存瓦片
-func (task *Task) saveTile(tile Tile) error {
+func (task *Task) saveTile(tile Tile, format string) error {
 	defer task.wg.Done()
-	err := saveToFiles(tile, filepath.Base(task.File))
+	err := saveToFiles(tile, filepath.Base(task.File), format)
 	if err != nil {
-		log.Errorf("create %v tile file error ~ %s", tile.T, err)
+		log.Errorf("create %v tile file error ~ %s", tile, err)
 	}
 	return nil
 }
 
 //tileFetcher 瓦片加载器
-func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
-	defer task.wg.Done()
+func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 	defer func() {
+		task.wg.Done()
 		<-task.workers
 	}()
-	if int(t.Z) > task.Max || int(t.Z) < task.Min {
-		log.Errorf("error tile zoom %v", t)
-		return
-	}
-	if task.needCheck {
-		var ts DBTiles
-		flpY := (1 << uint32(t.Z)) - t.Y - 1
-		err := task.db.QueryRow("select tile_row,tile_column,zoom_level from tiles where tile_row="+strconv.Itoa(int(flpY))+" and tile_column="+strconv.Itoa(int(t.X))+" and zoom_level="+strconv.Itoa(int(t.Z))).Scan(&ts.tile_row, &ts.tile_column, &ts.zoom_level)
-		if err != nil && err.Error() != "sql: no rows in result set" {
-			return
-		}
-		if err == nil && ts.zoom_level > 1 {
-			return
-		}
-	}
-	prep := func(t maptile.Tile, url string) string {
-		url = strings.Replace(url, "{x}", strconv.Itoa(int(t.X)), -1)
-		url = strings.Replace(url, "{y}", strconv.Itoa(int(t.Y)), -1)
-		url = strings.Replace(url, "{z}", strconv.Itoa(int(t.Z)), -1)
+	prep := func(t TileXyz, url string) string {
+		url = strings.Replace(url, "{x}", strconv.Itoa(t.X), -1)
+		url = strings.Replace(url, "{y}", strconv.Itoa(t.Y), -1)
+		url = strings.Replace(url, "{z}", strconv.Itoa(t.Z), -1)
 		return url
 	}
 	pbf := prep(t, url)
 	resp, err := http.Get(pbf)
 	if err != nil {
-		task.errToRedis(t, url, err.Error())
+		task.errToRedis(t, err.Error())
 		log.Errorf("fetch :%v error, details: %s ~", t, err)
 		return
 	}
@@ -447,24 +332,20 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 		if resp.StatusCode != 404 {
 			log.Errorf("fetch %v tile error, status code: %d ~", t, resp.StatusCode)
 		}
-		task.errToRedis(t, url, "resp "+strconv.Itoa(resp.StatusCode))
+		task.errToRedis(t, "resp "+strconv.Itoa(resp.StatusCode))
 		return
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		task.errToRedis(t, url, err.Error())
+		task.errToRedis(t, err.Error())
 		log.Errorf("read %v tile error ~ %s", t, err)
 		return
 	}
 	if len(body) == 0 {
-		task.errToRedis(t, url, "nil tile")
+		task.errToRedis(t, "nil tile")
 		return //zero byte tiles n
 	}
-	tile := Tile{
-		T: t,
-		C: body,
-	}
-
+	tile := Tile{X: t.X, Y: t.Y, Z: t.Z, C: body}
 	if task.TileMap.Format == PBF {
 		var buf bytes.Buffer
 		zw := gzip.NewWriter(&buf)
@@ -478,50 +359,53 @@ func (task *Task) tileFetcher(t maptile.Tile, url string, isRetry bool) {
 		tile.C = buf.Bytes()
 	}
 	if task.outformat == "mbtiles" || task.outformat == "mysql" {
-		task.savingpipe <- tile
+		if !task.abortSign {
+			task.savingpipe <- tile
+		}
 	} else {
 		task.wg.Add(1)
-		_ = task.saveTile(tile)
+		_ = task.saveTile(tile, task.TileMap.Format)
 	}
 	if isRetry {
 		task.cleanFail(t)
 	}
 }
 
-type DBTiles struct {
-	tile_row    int
-	tile_column int
-	zoom_level  int
-}
-
 //DownloadZoom 下载指定层级
-func (task *Task) downloadLayer(layer Layer) {
-	bar := pb.New64(layer.Count).Prefix(fmt.Sprintf("Zoom %d : ", layer.Zoom))
-	// bar.SetRefreshRate(time.Second)
+func (task *Task) downloadLayer(layer TileOption) {
+	bar := pb.New64(int64(layer.Count)).Prefix(fmt.Sprintf("Zoom %d : ", layer.Zoom))
 	bar.Start()
-	// bar.SetMaxWidth(300)
+	var tileList = make(chan TileXyz, 0)
+	go GenerateTiles(&GenerateTilesOptions{
+		Bounds:   &layer.Bound,
+		Zoom:     layer.Zoom,
+		Consumer: tileList,
+	})
 
-	var tilelist = make(chan maptile.Tile, task.bufSize)
-
-	go tilecover.CollectionChannel(layer.Collection, maptile.Zoom(layer.Zoom), tilelist)
-
-	for tile := range tilelist {
+	for tile := range tileList {
+		if task.StartCol != -1 && layer.Zoom == task.MinZoom {
+			if tile.X < task.StartCol-1 {
+				bar.Increment()
+				continue
+			}
+		}
+		if task.CurCol != tile.X {
+			task.CurCol = tile.X
+		}
 		count := bar.Get()
-		if count > 0 && count%1000000 == 0 {
+		if count > 0 && count%10000000 == 0 {
 			time.Sleep(time.Minute * 2)
 		}
 		select {
 		case task.workers <- tile:
 			bar.Increment()
-			task.Bar.Increment()
 			task.wg.Add(1)
 			go task.tileFetcher(tile, layer.URL, false)
 		case <-task.abort:
+			close(tileList)
 			log.Infof("task %s got canceled.", task.ID)
-			close(tilelist)
 		case <-task.pause:
 			bar.Increment()
-			task.Bar.Increment()
 			task.wg.Add(1)
 			go task.tileFetcher(tile, layer.URL, false)
 			log.Infof("task %s suspended.", task.ID)
@@ -529,11 +413,10 @@ func (task *Task) downloadLayer(layer Layer) {
 			case <-task.play:
 				log.Infof("task %s go on.", task.ID)
 			case <-task.abort:
+				close(tileList)
 				log.Infof("task %s got canceled.", task.ID)
-				close(tilelist)
 			}
 		}
-
 	}
 	task.wg.Wait()
 	bar.FinishPrint(fmt.Sprintf("Task %s zoom %d finished ~", task.ID, layer.Zoom))
@@ -541,43 +424,21 @@ func (task *Task) downloadLayer(layer Layer) {
 
 //Download 开启下载任务
 func (task *Task) Download() {
-	if task.outformat == "mbtiles" {
-		err := task.SetupMBTileTables()
-		if err != nil {
-			log.Errorf("Database connect and prepare error")
-			return
-		}
-	}
-	if task.outformat == "mysql" {
-		err := task.SetupMysqlTables()
-		if err != nil {
-			log.Errorf("Database connect and prepare error")
-			return
-		}
-	}
-	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.workerCount
-	http.DefaultTransport.(*http.Transport).MaxConnsPerHost = task.workerCount
-	http.DefaultTransport.(*http.Transport).IdleConnTimeout = time.Second * 5
-	http.DefaultTransport.(*http.Transport).MaxIdleConns = task.workerCount
 	go task.savePipe()
-	//g orb.Geometry, minz int, maxz int
-	task.Bar = pb.New64(task.Total).Prefix("Task : ")
-	// task.Bar.Start()
 	go task.printPipe()
 	go task.retryLoop()
 	for _, layer := range task.Layers {
-		task.downloadLayer(layer)
+		if layer.Zoom >= task.MinZoom && !task.abortSign {
+			task.CurZoom = layer.Zoom
+			task.downloadLayer(layer)
+		}
 	}
-	task.complete = true
+	task.end = true
 	task.wg.Add(1)
 	close(task.savingpipe)
 	task.wg.Wait()
-	for true {
-		if len(task.savingpipe) == 0 {
-			break
-		}
-	}
-	task.Bar.FinishPrint(fmt.Sprintf("task %s finished ~", task.ID))
+	task.complete = true
+	log.Infof("task %s finished ~", task.ID)
 }
 func (task *Task) printPipe() {
 	for true {

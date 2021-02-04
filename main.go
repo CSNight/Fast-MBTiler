@@ -1,14 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"os"
-	"time"
-
-	log "github.com/sirupsen/logrus"
 
 	nested "github.com/antonfisher/nested-logrus-formatter"
 	_ "github.com/shaxbee/go-spatialite"
@@ -85,7 +84,11 @@ type TileMap struct {
 	JSON        string
 	URL         string
 	Token       string
-	//such as porxy...
+	Bound       string
+}
+
+type App struct {
+	task *Task
 }
 
 func main() {
@@ -98,62 +101,60 @@ func main() {
 		cf = "conf.toml"
 	}
 	initConf(cf)
-	start := time.Now()
 	tm := TileMap{
 		Name:   viper.GetString("tm.name"),
 		Min:    viper.GetInt("tm.min"),
 		Max:    viper.GetInt("tm.max"),
 		Format: viper.GetString("tm.format"),
 		Schema: viper.GetString("tm.schema"),
+		Bound:  viper.GetString("tm.bound"),
 		JSON:   viper.GetString("tm.json"),
 		URL:    viper.GetString("tm.url"),
 	}
-	type cfgLayer struct {
-		Min     uint32
-		Max     uint32
-		Geojson string
-		URL     string
-	}
-	var cfgLrs []cfgLayer
-	err := viper.UnmarshalKey("lrs", &cfgLrs)
+	var Bound LngLatBbox
+	err := json.Unmarshal([]byte(tm.Bound), &Bound)
 	if err != nil {
-		log.Fatal("lrs配置错误")
+		return
 	}
-	var layers []Layer
-	for _, lrs := range cfgLrs {
-		for z := lrs.Min; z <= lrs.Max; z++ {
-			c := loadCollection(lrs.Geojson)
-			layer := Layer{
-				URL:        lrs.URL,
-				Zoom:       z,
-				Collection: c,
-			}
-			layers = append(layers, layer)
+	var layers []TileOption
+	for z := tm.Min; z <= tm.Max; z++ {
+		layer := TileOption{
+			URL:   tm.URL,
+			Zoom:  z,
+			Bound: Bound,
 		}
+		layers = append(layers, layer)
 	}
 
-	task := NewTask(layers, tm)
+	app := App{task: nil}
 	r := gin.Default()
+	r.GET("/start", func(c *gin.Context) {
+		id := c.Query("id")
+		go func() {
+			app.task, _ = NewTask(layers, tm, id)
+			app.task.Download()
+		}()
+		c.JSON(200, gin.H{
+			"message": "ok",
+		})
+	})
 	r.GET("/pause", func(c *gin.Context) {
-		task.pauseFun()
+		app.task.pauseFun()
 		c.JSON(200, gin.H{
 			"message": "ok",
 		})
 	})
 	r.GET("/consume", func(c *gin.Context) {
-		task.playFun()
+		app.task.playFun()
 		c.JSON(200, gin.H{
 			"message": "ok",
 		})
 	})
 	r.GET("/abort", func(c *gin.Context) {
-		task.abortFun()
+		app.task.abortFun()
 		c.JSON(200, gin.H{
 			"message": "ok",
 		})
 	})
-	go r.Run(":9100")
-	task.Download()
-	secs := time.Since(start).Seconds()
-	fmt.Printf("\n%.3fs finished...", secs)
+	r.Run(":9100")
 }
