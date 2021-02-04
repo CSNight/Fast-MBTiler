@@ -3,8 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/geojson"
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
@@ -24,7 +22,7 @@ func saveToMBTile(tiles []Tile, db *sql.DB, dt string) error {
 	}
 	sqlStr := "insert or ignore into tiles (zoom_level, tile_column, tile_row, tile_data) values (?, ?, ?, ?);"
 	for _, tile := range tiles {
-		_, err := tx.Exec(sqlStr, tile.T.Z, tile.T.X, tile.flipY(), tile.C)
+		_, err := tx.Exec(sqlStr, tile.Z, tile.X, tile.flipY(), tile.C)
 		if err != nil {
 			return err
 		}
@@ -47,7 +45,7 @@ func saveToMysql(tiles []Tile, db *sql.DB) error {
 	valueStrings := make([]string, 0)
 	for _, tile := range tiles {
 		valueStrings = append(valueStrings, placeholder)
-		bulkValues = append(bulkValues, tile.T.Z, tile.T.X, tile.flipY(), tile.C)
+		bulkValues = append(bulkValues, tile.Z, tile.X, tile.flipY(), tile.C)
 	}
 	tx, err := db.Begin()
 	if err != nil {
@@ -67,10 +65,10 @@ func saveToMysql(tiles []Tile, db *sql.DB) error {
 	}
 	return nil
 }
-func saveToFiles(tile Tile, rootdir string) error {
-	dir := filepath.Join(rootdir, fmt.Sprintf(`%d`, tile.T.Z), fmt.Sprintf(`%d`, tile.T.X))
+func saveToFiles(tile Tile, rootdir string, format string) error {
+	dir := filepath.Join(rootdir, fmt.Sprintf(`%d`, tile.Z), fmt.Sprintf(`%d`, tile.X))
 	os.MkdirAll(dir, os.ModePerm)
-	fileName := filepath.Join(dir, fmt.Sprintf(`%d.png`, tile.T.Y))
+	fileName := filepath.Join(dir, fmt.Sprintf(`%d.`+format, tile.Y))
 	err := ioutil.WriteFile(fileName, tile.C, os.ModePerm)
 	if err != nil {
 		return err
@@ -101,23 +99,4 @@ func optimizeConnection(db *sql.DB) error {
 		return err
 	}
 	return nil
-}
-
-func loadCollection(path string) orb.Collection {
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		log.Fatalf("unable to read file: %v", err)
-	}
-
-	fc, err := geojson.UnmarshalFeatureCollection(data)
-	if err != nil {
-		log.Fatalf("unable to unmarshal feature: %v", err)
-	}
-
-	var collection orb.Collection
-	for _, f := range fc.Features {
-		collection = append(collection, f.Geometry)
-	}
-
-	return collection
 }
