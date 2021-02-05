@@ -121,7 +121,7 @@ func (task *Task) retry() {
 		}
 		tile := TileXyz{
 			X: te.X,
-			Y: te.X,
+			Y: te.Y,
 			Z: te.Z,
 		}
 		select {

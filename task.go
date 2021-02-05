@@ -184,17 +184,9 @@ func (task *Task) SetupMBTileTables(ignore bool) error {
 	if err != nil {
 		return err
 	}
-
 	if !ignore {
-		_, err = db.Exec("create unique index name on metadata (name);")
-		if err != nil {
-			return err
-		}
-
-		_, err = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
-		if err != nil {
-			return err
-		}
+		_, _ = db.Exec("create unique index name on metadata (name);")
+		_, _ = db.Exec("create unique index tile_index on tiles(zoom_level, tile_column, tile_row);")
 		// Load metadata.
 		for name, value := range task.MetaItems() {
 			_, err := db.Exec("insert or ignore into metadata (name, value) values (?, ?)", name, value)
@@ -225,16 +217,8 @@ func (task *Task) SetupMysqlTables(ignore bool) error {
 		return err
 	}
 	if !ignore {
-		_, err = db.Exec("create unique index name on metadata (name);")
-		if err != nil {
-			return err
-		}
-
-		_, err = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
-		if err != nil {
-			return err
-		}
-
+		_, _ = db.Exec("create unique index name on metadata (name);")
+		_, _ = db.Exec("create unique  index tile_index on tiles(zoom_level, tile_column, tile_row);")
 		// Load metadata.
 		for name, value := range task.MetaItems() {
 			_, err := db.Exec("insert ignore into metadata (name, value) values (?, ?)", name, value)
