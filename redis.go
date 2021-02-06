@@ -29,11 +29,11 @@ func (task *Task) getCursor() (int, int) {
 		return -1, -1
 	} else {
 		cursor := strings.Split(replay, ":")
-		zoom, err := strconv.ParseInt(cursor[0], 10, 8)
+		zoom, err := strconv.ParseInt(cursor[0], 10, 64)
 		if err != nil {
 			return -1, -1
 		}
-		col, err := strconv.ParseInt(cursor[1], 10, 8)
+		col, err := strconv.ParseInt(cursor[1], 10, 64)
 		if err != nil {
 			return -1, -1
 		}
