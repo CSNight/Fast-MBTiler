@@ -323,6 +323,8 @@ func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 	if resp.StatusCode != 200 {
 		if resp.StatusCode != 404 {
 			log.Errorf("fetch %v tile error, status code: %d ~", t, resp.StatusCode)
+		} else if resp.StatusCode == 404 && isRetry {
+			task.cleanFail(t)
 		}
 		task.errToRedis(t, "resp "+strconv.Itoa(resp.StatusCode))
 		return
@@ -334,6 +336,9 @@ func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 		return
 	}
 	if len(body) == 0 {
+		if isRetry {
+			task.cleanFail(t)
+		}
 		task.errToRedis(t, "nil tile")
 		return //zero byte tiles n
 	}
