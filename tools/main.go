@@ -42,9 +42,45 @@ type cur struct {
 }
 
 func main() {
-	exportTileToSqlite(14)
+	exportTileToSqlite(15)
+	//rdbSync()
 }
-
+func rdbSync() {
+	poolTar := redis.Pool{
+		MaxIdle:     16,
+		MaxActive:   32,
+		IdleTimeout: 120,
+		Dial: func() (redis.Conn, error) {
+			return redis.Dial("tcp", "127.0.0.1:6379")
+		},
+	}
+	connTar := poolTar.Get()
+	poolSou := redis.Pool{
+		MaxIdle:     16,
+		MaxActive:   32,
+		IdleTimeout: 120,
+		Dial: func() (redis.Conn, error) {
+			return redis.Dial("tcp", "127.0.0.1:10001")
+		},
+	}
+	connSou := poolSou.Get()
+	defer func() {
+		connTar.Close()
+		poolTar.Close()
+		connSou.Close()
+		poolSou.Close()
+	}()
+	replay, _ := redis.StringMap(connSou.Do("hgetall", "nil_list:90a8b6b4-dfa6-46bc-ac8c-3e3bdc2f429c"))
+	var count = 0
+	for tk := range replay {
+		rep, err := redis.Int(connTar.Do("hset", "nil_list:7c105526-ce46-4432-b090-752b59a113ed", tk, replay[tk][:]))
+		if err != nil {
+			log.Warnf("%v", err)
+		}
+		count = count + rep
+	}
+	log.Warnf("redis save rec %d", count)
+}
 func exportTileToSqlite(zoom int) {
 	log.SetFormatter(&nested.Formatter{
 		HideKeys:        true,
@@ -66,8 +102,8 @@ func exportTileToSqlite(zoom int) {
 	task := exportRec{}
 	task.workers = make(chan cur, 8)
 	task.savingpipe = make(chan []record, 16)
-	mysql, _ := sql.Open("mysql", "csnight:qnyh@123@tcp(127.0.0.1:3306)/streets-v8")
-	sqlite, err := sql.Open("sqlite3", "output/streets-v8.mbtiles")
+	mysql, _ := sql.Open("sqlite3", "G:\\streets-v8.mbtiles")
+	sqlite, err := sql.Open("sqlite3", "G:\\streets-v8\\streets-v8.mbtiles")
 	if err != nil {
 		return
 	}
@@ -96,7 +132,7 @@ func exportTileToSqlite(zoom int) {
 	}
 	var max MaxIndex
 	err = mysql.QueryRow("select max(tile_column) as maxCol from tiles where zoom_level=" + strconv.Itoa(zoom)).Scan(&max.maxCol)
-	var offset = 0
+	var offset = 6800
 	var count = 0
 	go task.savePipe(sqlite)
 	for true {
@@ -118,7 +154,12 @@ func exportTileToSqlite(zoom int) {
 		time.Sleep(time.Millisecond * 100)
 	}
 	task.wg.Wait()
-	task.complete = true
+	close(task.savingpipe)
+	for true {
+		if task.complete {
+			break
+		}
+	}
 	log.Infof("total %d", count)
 }
 func (task *exportRec) genRec(mysql *sql.DB, cursor cur) {
@@ -126,7 +167,7 @@ func (task *exportRec) genRec(mysql *sql.DB, cursor cur) {
 	defer func() {
 		<-task.workers
 	}()
-	rows, err := mysql.Query("select * from tiles where zoom_level=" + strconv.Itoa(cursor.zoom) + " and tile_column=" + strconv.Itoa(cursor.column) + " limit " + strconv.Itoa(cursor.max+1000))
+	rows, err := mysql.Query("select * from tiles where zoom_level=" + strconv.Itoa(cursor.zoom) + " and tile_column=" + strconv.Itoa(cursor.column) + " limit " + strconv.Itoa(40000))
 	if err != nil {
 		return
 	}
@@ -136,7 +177,9 @@ func (task *exportRec) genRec(mysql *sql.DB, cursor cur) {
 		rows.Scan(&tr.zoom_level, &tr.tile_column, &tr.tile_row, &tr.tile_data)
 		recs = append(recs, tr)
 	}
-	task.savingpipe <- recs
+	if len(recs) > 0 {
+		task.savingpipe <- recs
+	}
 }
 func (task *exportRec) savePipe(db *sql.DB) {
 	for rec := range task.savingpipe {
@@ -145,6 +188,7 @@ func (task *exportRec) savePipe(db *sql.DB) {
 			log.Errorf("save tile to mbtiles db error ~ %s", err)
 		}
 	}
+	task.complete = true
 }
 func (task *exportRec) saveToSqlite(rows []record, sqlite *sql.DB) error {
 	start := time.Now()

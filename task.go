@@ -132,6 +132,7 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 	http.DefaultTransport.(*http.Transport).MaxConnsPerHost = task.workerCount
 	http.DefaultTransport.(*http.Transport).IdleConnTimeout = time.Second * 5
 	http.DefaultTransport.(*http.Transport).MaxIdleConns = task.workerCount
+	http.DefaultClient.Timeout = time.Minute * 5
 	return &task, nil
 }
 
