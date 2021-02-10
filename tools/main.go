@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bufio"
 	"database/sql"
-	"encoding/json"
 	nested "github.com/antonfisher/nested-logrus-formatter"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gomodule/redigo/redis"
@@ -17,19 +15,13 @@ import (
 	"time"
 )
 
-type st struct {
-	X   uint64 `json:"x"`
-	Y   uint64 `json:"y"`
-	Z   uint64 `json:"z"`
-	Url string `json:"url"`
-}
 type record struct {
 	zoom_level  int
 	tile_row    int
 	tile_column int
 	tile_data   []byte
 }
-type exportRec struct {
+type ExportTask struct {
 	wg         sync.WaitGroup
 	workers    chan cur
 	savingpipe chan []record
@@ -42,10 +34,10 @@ type cur struct {
 }
 
 func main() {
-	exportTileToSqlite(15)
+	exportTileToSqlite(1000, 15)
 	//rdbSync()
 }
-func rdbSync() {
+func rdbSync(key1 string, key2 string) {
 	poolTar := redis.Pool{
 		MaxIdle:     16,
 		MaxActive:   32,
@@ -65,15 +57,13 @@ func rdbSync() {
 	}
 	connSou := poolSou.Get()
 	defer func() {
-		connTar.Close()
-		poolTar.Close()
-		connSou.Close()
-		poolSou.Close()
+		_ = poolTar.Close()
+		_ = poolSou.Close()
 	}()
-	replay, _ := redis.StringMap(connSou.Do("hgetall", "nil_list:90a8b6b4-dfa6-46bc-ac8c-3e3bdc2f429c"))
+	replay, _ := redis.StringMap(connSou.Do("hgetall", key1))
 	var count = 0
 	for tk := range replay {
-		rep, err := redis.Int(connTar.Do("hset", "nil_list:7c105526-ce46-4432-b090-752b59a113ed", tk, replay[tk][:]))
+		rep, err := redis.Int(connTar.Do("hset", key2, tk, replay[tk][:]))
 		if err != nil {
 			log.Warnf("%v", err)
 		}
@@ -81,7 +71,7 @@ func rdbSync() {
 	}
 	log.Warnf("redis save rec %d", count)
 }
-func exportTileToSqlite(zoom int) {
+func exportTileToSqlite(start int, zoom int) {
 	log.SetFormatter(&nested.Formatter{
 		HideKeys:        true,
 		ShowFullLevel:   true,
@@ -99,7 +89,7 @@ func exportTileToSqlite(zoom int) {
 		log.Info("failed to log to file.")
 	}
 	log.SetLevel(log.DebugLevel)
-	task := exportRec{}
+	task := ExportTask{}
 	task.workers = make(chan cur, 8)
 	task.savingpipe = make(chan []record, 16)
 	mysql, _ := sql.Open("sqlite3", "G:\\streets-v8.mbtiles")
@@ -132,8 +122,7 @@ func exportTileToSqlite(zoom int) {
 	}
 	var max MaxIndex
 	err = mysql.QueryRow("select max(tile_column) as maxCol from tiles where zoom_level=" + strconv.Itoa(zoom)).Scan(&max.maxCol)
-	var offset = 6800
-	var count = 0
+	var offset = start
 	go task.savePipe(sqlite)
 	for true {
 		if offset > max.maxCol {
@@ -149,7 +138,6 @@ func exportTileToSqlite(zoom int) {
 			task.wg.Add(1)
 			go task.genRec(mysql, cursor)
 			offset++
-			count++
 		}
 		time.Sleep(time.Millisecond * 100)
 	}
@@ -160,9 +148,8 @@ func exportTileToSqlite(zoom int) {
 			break
 		}
 	}
-	log.Infof("total %d", count)
 }
-func (task *exportRec) genRec(mysql *sql.DB, cursor cur) {
+func (task *ExportTask) genRec(mysql *sql.DB, cursor cur) {
 	defer task.wg.Done()
 	defer func() {
 		<-task.workers
@@ -181,16 +168,19 @@ func (task *exportRec) genRec(mysql *sql.DB, cursor cur) {
 		task.savingpipe <- recs
 	}
 }
-func (task *exportRec) savePipe(db *sql.DB) {
+func (task *ExportTask) savePipe(db *sql.DB) {
+	var count = 0
 	for rec := range task.savingpipe {
 		err := task.saveToSqlite(rec, db)
 		if err != nil {
 			log.Errorf("save tile to mbtiles db error ~ %s", err)
 		}
+		count += len(rec)
 	}
 	task.complete = true
+	log.Infof("total %d", count)
 }
-func (task *exportRec) saveToSqlite(rows []record, sqlite *sql.DB) error {
+func (task *ExportTask) saveToSqlite(rows []record, sqlite *sql.DB) error {
 	start := time.Now()
 	tx, er := sqlite.Begin()
 	if er != nil {
@@ -237,89 +227,5 @@ func exportRedisToLog() {
 		st := strings.Replace(replay[tk], "tile_", "", -1)
 		st = strings.Replace(st, "_", "/", -1)
 		_, _ = f.WriteString(st + "\n")
-	}
-}
-func saveLogToRedis() {
-	file, err := os.Open("errTile.txt")
-	if err != nil {
-		log.Fatal(err)
-	}
-	pool := redis.Pool{
-		MaxIdle:     16,
-		MaxActive:   32,
-		IdleTimeout: 120,
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", "127.0.0.1:6379")
-		},
-	}
-	conn := pool.Get()
-	defer func() {
-		file.Close()
-		pool.Close()
-	}()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lineText := scanner.Text()
-		srt := strings.Split(lineText, "/")
-		x, err := strconv.ParseUint(srt[0], 10, 32)
-		y, err := strconv.ParseUint(srt[1], 10, 32)
-		z, err := strconv.ParseUint(srt[2], 10, 32)
-		et := st{
-			X:   x,
-			Y:   y,
-			Z:   z,
-			Url: "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.country-boundaries-v1/" + srt[2] + "/" + srt[0] + "/" + srt[1] + ".vector.pbf?sku=101OxDPvepvQI&access_token=pk.eyJ1IjoiY3NuaWdodCIsImEiOiJjazRqanVydXMwYmtlM2VxODF1NDVtNWlsIn0.eGp2KkdstpJjiKdymjZ3sA",
-		}
-		key := "tile_" + strconv.FormatUint(et.X, 10) + "_" + strconv.FormatUint(et.Y, 10) + "_" + strconv.FormatUint(et.Z, 10)
-		val, _ := json.Marshal(et)
-		replay, err := conn.Do("hset", "fail_list", key, string(val[:]))
-		if err != nil {
-			log.Warnf("redis save tile failure %v", replay)
-		}
-	}
-}
-
-type ErrTiles struct {
-	X   int    `json:"x"`
-	Y   int    `json:"y"`
-	Z   int    `json:"z"`
-	Res string `json:"res"`
-	Url string `json:"url"`
-}
-
-func redisKeyCorrect() {
-	pool := redis.Pool{
-		MaxIdle:     16,
-		MaxActive:   32,
-		IdleTimeout: 120,
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", "127.0.0.1:6379")
-		},
-	}
-	conn := pool.Get()
-	defer func() {
-		pool.Close()
-	}()
-	replay, _ := redis.StringMap(conn.Do("hgetall", "fail_list"))
-	var count = 0
-	for tk := range replay {
-		st := strings.Replace(tk, "tile_", "", -1)
-		xyz := strings.Split(st, "_")
-		z, _ := strconv.ParseInt(xyz[2], 10, 64)
-		var et ErrTiles
-		_ = json.Unmarshal([]byte(replay[tk]), &et)
-		if z > 14 {
-			conn.Do("hdel", tk)
-			key := "tile_" + strconv.FormatUint(uint64(et.X), 10) + "_" + strconv.FormatUint(uint64(et.Y), 10) + "_" + strconv.FormatUint(uint64(et.Z), 10)
-			_, err := conn.Do("hset", "fail_list", key, replay[tk][:])
-			if err != nil {
-				continue
-			}
-		}
-		if et.Res == "nil tile" || et.Res == "resp 404" {
-			count++
-			continue
-		}
-		log.Errorf("%d", count)
 	}
 }
