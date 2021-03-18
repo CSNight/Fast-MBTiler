@@ -6,6 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (task *Task) cleanInfo() {
@@ -113,17 +114,22 @@ func (task *Task) retry() {
 	if err != nil {
 		return
 	}
+	var count = 0
 	for kv := range alls {
 		var te ErrTile
 		err = json.Unmarshal([]byte(alls[kv]), &te)
 		if err != nil {
 			continue
 		}
+		if count > 0 && count%100 == 0 {
+			time.Sleep(time.Second * 2)
+		}
 		tile := TileXyz{
 			X: te.X,
 			Y: te.Y,
 			Z: te.Z,
 		}
+		count++
 		select {
 		case task.workers <- tile:
 			task.wg.Add(1)
