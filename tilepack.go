@@ -147,7 +147,7 @@ func GetTileCount(bounds *LngLatBbox, zoom int) int {
 	return count
 }
 
-func GenerateTiles(opts *GenerateTilesOptions) {
+func GenerateTiles(opts *GenerateTilesOptions, stop chan int) {
 	bounds := opts.Bounds
 	zoom := opts.Zoom
 	consumer := opts.Consumer
@@ -155,11 +155,6 @@ func GenerateTiles(opts *GenerateTilesOptions) {
 	defer func() {
 		if complete {
 			close(consumer)
-		}
-	}()
-	defer func() {
-		if recover() != nil {
-
 		}
 	}()
 	var boxes []*LngLatBbox
@@ -199,7 +194,12 @@ func GenerateTiles(opts *GenerateTilesOptions) {
 			for j := ury; j < row; j++ {
 				x := i
 				y := j
-				consumer <- TileXyz{Z: zoom, X: x, Y: y}
+				select {
+				case <-stop:
+					complete = true
+					return
+				case consumer <- TileXyz{Z: zoom, X: x, Y: y}:
+				}
 			}
 		}
 	}
