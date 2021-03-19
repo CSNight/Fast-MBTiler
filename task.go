@@ -91,7 +91,7 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 			MaxActive:   32,
 			IdleTimeout: 120,
 			Dial: func() (redis.Conn, error) {
-				return redis.Dial("tcp", "127.0.0.1:10001")
+				return redis.Dial("tcp", viper.GetString("task.redis"))
 			},
 		},
 	}
