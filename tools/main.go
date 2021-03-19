@@ -92,7 +92,7 @@ func exportTileToSqlite(start int, zoom int) {
 	task := ExportTask{}
 	task.workers = make(chan cur, 8)
 	task.savingpipe = make(chan []record, 16)
-	mysql, _ := sql.Open("sqlite3", "G:\\streets-v8.mbtiles")
+	mysql, _ := sql.Open("sqlite3", "E:\\streets-v8.mbtiles")
 	sqlite, err := sql.Open("sqlite3", "G:\\streets-v8\\streets-v8.mbtiles")
 	if err != nil {
 		return
@@ -114,6 +114,10 @@ func exportTileToSqlite(start int, zoom int) {
 		return
 	}
 	_, err = sqlite.Exec("PRAGMA cache_size=8000")
+	if err != nil {
+		return
+	}
+	_, err = sqlite.Exec("PRAGMA auto_vacuum=1")
 	if err != nil {
 		return
 	}

@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	pb "gopkg.in/cheggaaa/pb.v1"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -330,7 +330,7 @@ func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 		task.errToRedis(t, "resp "+strconv.Itoa(resp.StatusCode))
 		return
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		task.errToRedis(t, err.Error())
 		log.Errorf("read %v tile error ~ %s", t, err)

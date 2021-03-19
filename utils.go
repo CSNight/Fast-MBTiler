@@ -90,6 +90,10 @@ func optimizeConnection(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	_, err = db.Exec("PRAGMA auto_vacuum=1")
+	if err != nil {
+		return err
+	}
 	_, err = db.Exec("PRAGMA locking_mode=EXCLUSIVE")
 	if err != nil {
 		return err
