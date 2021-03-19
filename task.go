@@ -91,7 +91,7 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 			MaxActive:   32,
 			IdleTimeout: 120,
 			Dial: func() (redis.Conn, error) {
-				return redis.Dial("tcp", "127.0.0.1:6379")
+				return redis.Dial("tcp", viper.GetString("task.redis"))
 			},
 		},
 	}
@@ -126,6 +126,13 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 		if err != nil {
 			log.Errorf("Database connect and prepare error")
 			return nil, err
+		}
+	}
+	if task.outformat == "file" {
+		if task.File == "" {
+			outdir := viper.GetString("output.directory")
+			os.MkdirAll(outdir, os.ModePerm)
+			task.File = filepath.Join(outdir, fmt.Sprintf("%s", task.Name))
 		}
 	}
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.workerCount
@@ -289,7 +296,7 @@ func (task *Task) savePipe() {
 //SaveTile 保存瓦片
 func (task *Task) saveTile(tile Tile, format string) error {
 	defer task.wg.Done()
-	err := saveToFiles(tile, filepath.Base(task.File), format)
+	err := saveToFiles(tile, task.File, format)
 	if err != nil {
 		log.Errorf("create %v tile file error ~ %s", tile, err)
 	}
@@ -374,11 +381,12 @@ func (task *Task) downloadLayer(layer TileOption) {
 	bar := pb.New64(int64(layer.Count)).Prefix(fmt.Sprintf("Zoom %d : ", layer.Zoom))
 	bar.Start()
 	var tileList = make(chan TileXyz, 0)
+	var stopChan = make(chan int)
 	go GenerateTiles(&GenerateTilesOptions{
 		Bounds:   &layer.Bound,
 		Zoom:     layer.Zoom,
 		Consumer: tileList,
-	})
+	}, stopChan)
 
 	for tile := range tileList {
 		if task.StartCol != -1 && layer.Zoom == task.MinZoom {
@@ -401,7 +409,7 @@ func (task *Task) downloadLayer(layer TileOption) {
 			task.wg.Add(1)
 			go task.tileFetcher(tile, layer.URL, false)
 		case <-task.abort:
-			close(tileList)
+			stopChan <- 1
 			log.Infof("task %s got canceled.", task.ID)
 		case <-task.pause:
 			bar.Increment()

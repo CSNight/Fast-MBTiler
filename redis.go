@@ -47,8 +47,8 @@ func (task *Task) saveCursor() {
 		task.closeRedisConn(conn)
 	}()
 	conn = task.redisPool.Get()
-	replay, err := redis.Int64(conn.Do("set", "cursor:"+task.ID, strconv.Itoa(task.CurZoom)+":"+strconv.Itoa(task.CurCol)))
-	if err != nil && replay < 0 {
+	_, err := redis.String(conn.Do("set", "cursor:"+task.ID, strconv.Itoa(task.CurZoom)+":"+strconv.Itoa(task.CurCol)))
+	if err != nil {
 		log.Errorf("redis save cursor failure")
 	}
 }

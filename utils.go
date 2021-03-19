@@ -71,9 +71,9 @@ func saveToFiles(tile Tile, rootdir string, format string) error {
 	fileName := filepath.Join(dir, fmt.Sprintf(`%d.`+format, tile.Y))
 	err := ioutil.WriteFile(fileName, tile.C, os.ModePerm)
 	if err != nil {
+		log.Println(fileName)
 		return err
 	}
-	log.Println(fileName)
 	return nil
 }
 
