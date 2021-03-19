@@ -128,6 +128,13 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 			return nil, err
 		}
 	}
+	if task.outformat == "file" {
+		if task.File == "" {
+			outdir := viper.GetString("output.directory")
+			os.MkdirAll(outdir, os.ModePerm)
+			task.File = filepath.Join(outdir, fmt.Sprintf("%s", task.Name))
+		}
+	}
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.workerCount
 	http.DefaultTransport.(*http.Transport).MaxConnsPerHost = task.workerCount
 	http.DefaultTransport.(*http.Transport).IdleConnTimeout = time.Second * 5
@@ -289,7 +296,7 @@ func (task *Task) savePipe() {
 //SaveTile 保存瓦片
 func (task *Task) saveTile(tile Tile, format string) error {
 	defer task.wg.Done()
-	err := saveToFiles(tile, filepath.Base(task.File), format)
+	err := saveToFiles(tile, task.File, format)
 	if err != nil {
 		log.Errorf("create %v tile file error ~ %s", tile, err)
 	}
