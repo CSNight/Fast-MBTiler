@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/gomodule/redigo/redis"
-	log "github.com/sirupsen/logrus"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gomodule/redigo/redis"
+	log "github.com/sirupsen/logrus"
 )
 
 func (task *Task) cleanInfo() {
@@ -19,6 +20,7 @@ func (task *Task) cleanInfo() {
 	_, _ = redis.String(conn.Do("del", "nil_list:"+task.ID))
 	_, _ = redis.String(conn.Do("del", "fail_list:"+task.ID))
 }
+
 func (task *Task) getCursor() (int, int) {
 	var conn redis.Conn
 	defer func() {
@@ -130,10 +132,8 @@ func (task *Task) retry() {
 			Z: te.Z,
 		}
 		count++
-		select {
-		case task.workers <- tile:
-			task.wg.Add(1)
-			go task.tileFetcher(tile, task.TileMap.URL, true)
-		}
+		task.workers <- tile
+		task.wg.Add(1)
+		go task.tileFetcher(tile, task.TileMap.URL, true)
 	}
 }

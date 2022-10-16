@@ -3,12 +3,12 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func saveToMBTile(tiles []Tile, db *sql.DB, dt string) error {
@@ -53,6 +53,9 @@ func saveToMysql(tiles []Tile, db *sql.DB) error {
 	}
 	stmStr := fmt.Sprintf(sqlStr, strings.Join(valueStrings, ","))
 	res, err := tx.Exec(stmStr, bulkValues...)
+	if err != nil {
+		return err
+	}
 	err = tx.Commit()
 	if err != nil {
 		return err
@@ -69,7 +72,7 @@ func saveToFiles(tile Tile, rootdir string, format string) error {
 	dir := filepath.Join(rootdir, fmt.Sprintf(`%d`, tile.Z), fmt.Sprintf(`%d`, tile.X))
 	os.MkdirAll(dir, os.ModePerm)
 	fileName := filepath.Join(dir, fmt.Sprintf(`%d.`+format, tile.Y))
-	err := ioutil.WriteFile(fileName, tile.C, os.ModePerm)
+	err := os.WriteFile(fileName, tile.C, os.ModePerm)
 	if err != nil {
 		log.Println(fileName)
 		return err

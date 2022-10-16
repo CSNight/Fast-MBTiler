@@ -134,7 +134,7 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 		if task.File == "" {
 			outdir := viper.GetString("output.directory")
 			os.MkdirAll(outdir, os.ModePerm)
-			task.File = filepath.Join(outdir, fmt.Sprintf("%s", task.Name))
+			task.File = filepath.Join(outdir, task.Name)
 		}
 	}
 	http.DefaultTransport.(*http.Transport).MaxIdleConnsPerHost = task.workerCount
@@ -245,7 +245,7 @@ func (task *Task) abortFun() {
 	task.abort <- struct{}{}
 	task.signal = Aborting
 	go func() {
-		for true {
+		for {
 			if task.signal == Terminated {
 				task.saveCursor()
 				_ = task.redisPool.Close()
@@ -289,7 +289,6 @@ func (task *Task) savePipe() {
 		} else {
 			log.Infof("save batch complete count %d", len(batch))
 		}
-		batch = []Tile{}
 	}
 	task.wg.Done()
 	task.signal = Terminated
@@ -380,10 +379,10 @@ func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 
 //DownloadZoom 下载指定层级
 func (task *Task) downloadLayer(layer TileOption) {
-	fmt.Println(fmt.Sprintf("Zoom %d : ", layer.Zoom))
+	fmt.Printf("Zoom %d : \n", layer.Zoom)
 	bar := pb.StartNew(layer.Count)
-	var tileList = make(chan TileXyz, 0)
-	var stopChan = make(chan int)
+	tileList := make(chan TileXyz)
+	stopChan := make(chan int)
 	go GenerateTiles(&GenerateTilesOptions{
 		Bounds:   &layer.Bound,
 		Zoom:     layer.Zoom,
@@ -429,7 +428,7 @@ func (task *Task) downloadLayer(layer TileOption) {
 	}
 	task.wg.Wait()
 	bar.Finish()
-	fmt.Println(fmt.Sprintf("Task %s zoom %d finished ~", task.ID, layer.Zoom))
+	fmt.Printf("Task %s zoom %d finished ~\n", task.ID, layer.Zoom)
 }
 
 //Download 开启下载任务

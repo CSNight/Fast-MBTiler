@@ -52,11 +52,11 @@ type TileOption struct {
 // Constants representing TileFormat types
 const (
 	GZIP string = "gzip" // encoding = gzip
-	ZLIB        = "zlib" // encoding = deflate
-	PNG         = "png"
-	JPG         = "jpg"
-	PBF         = "pbf"
-	WEBP        = "webp"
+	ZLIB string = "zlib" // encoding = deflate
+	PNG  string = "png"
+	JPG  string = "jpg"
+	PBF  string = "pbf"
+	WEBP string = "webp"
 )
 
 type GenerateTilesOptions struct {
