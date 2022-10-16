@@ -6,12 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/gomodule/redigo/redis"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-	pb "gopkg.in/cheggaaa/pb.v1"
 	"io"
 	"net/http"
 	"os"
@@ -20,6 +14,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	pb "github.com/cheggaaa/pb/v3"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 //MBTileVersion mbtiles版本号
@@ -378,8 +380,8 @@ func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 
 //DownloadZoom 下载指定层级
 func (task *Task) downloadLayer(layer TileOption) {
-	bar := pb.New64(int64(layer.Count)).Prefix(fmt.Sprintf("Zoom %d : ", layer.Zoom))
-	bar.Start()
+	fmt.Println(fmt.Sprintf("Zoom %d : ", layer.Zoom))
+	bar := pb.StartNew(layer.Count)
 	var tileList = make(chan TileXyz, 0)
 	var stopChan = make(chan int)
 	go GenerateTiles(&GenerateTilesOptions{
@@ -399,7 +401,7 @@ func (task *Task) downloadLayer(layer TileOption) {
 			task.CurCol = tile.X
 			task.saveCursor()
 		}
-		count := bar.Get()
+		count := bar.Current()
 		if count > 0 && count%10000000 == 0 {
 			time.Sleep(time.Minute * 2)
 		}
@@ -426,7 +428,8 @@ func (task *Task) downloadLayer(layer TileOption) {
 		}
 	}
 	task.wg.Wait()
-	bar.FinishPrint(fmt.Sprintf("Task %s zoom %d finished ~", task.ID, layer.Zoom))
+	bar.Finish()
+	fmt.Println(fmt.Sprintf("Task %s zoom %d finished ~", task.ID, layer.Zoom))
 }
 
 //Download 开启下载任务
@@ -449,7 +452,7 @@ func (task *Task) Download() {
 	log.Infof("task %s finished ~", task.ID)
 }
 func (task *Task) printPipe() {
-	for true {
+	for {
 		if task.signal == Terminated {
 			break
 		}
@@ -458,7 +461,7 @@ func (task *Task) printPipe() {
 	}
 }
 func (task *Task) retryLoop() {
-	for true {
+	for {
 		task.retry()
 		time.Sleep(time.Second * 5)
 		if task.signal == Terminated {

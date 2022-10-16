@@ -4,14 +4,14 @@
 [output]
 	format ="mbtiles"
 	conn="csnight:qnyh@123@tcp(127.0.0.1:3306)/streets-v8"
-    directory="G:\\streets-v8"
+    directory="output/streets-v8"
 [task]
 	workers = 512
 	savepipe = 4000
     redis = "127.0.0.1:6379"
 [tm]
 	name = "streets-v8"
-	min = 15
+	min = 0
 	max = 15
 	format = "pbf"
 	schema = "xyz"

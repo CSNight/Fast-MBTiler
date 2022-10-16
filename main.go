@@ -10,7 +10,6 @@ import (
 	"os"
 
 	nested "github.com/antonfisher/nested-logrus-formatter"
-	_ "github.com/shaxbee/go-spatialite"
 	"github.com/spf13/viper"
 )
 
