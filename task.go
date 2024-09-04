@@ -6,6 +6,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/cheggaaa/pb/v3"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gomodule/redigo/redis"
+	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	"io"
 	"net/http"
 	"os"
@@ -14,17 +21,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	pb "github.com/cheggaaa/pb/v3"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/gomodule/redigo/redis"
-	"github.com/google/uuid"
-	_ "github.com/mattn/go-sqlite3"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
-//MBTileVersion mbtiles版本号
+// MBTileVersion mbtiles版本号
 const MBTileVersion = "1.2"
 
 type State int
@@ -38,7 +37,7 @@ const (
 	Terminated
 )
 
-//Task 下载任务
+// Task 下载任务
 type Task struct {
 	ID                 string
 	Name               string
@@ -65,7 +64,7 @@ type Task struct {
 	conn               string
 }
 
-//NewTask 创建下载任务
+// NewTask 创建下载任务
 func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 	if len(layers) == 0 {
 		return nil, errors.New("empty layer")
@@ -145,7 +144,7 @@ func NewTask(layers []TileOption, m TileMap, id string) (*Task, error) {
 	return &task, nil
 }
 
-//MetaItems 输出
+// MetaItems 输出
 func (task *Task) MetaItems() map[string]string {
 	b := task.Layers[len(task.Layers)-1].Bound
 	x := (b.East - b.West) / 2
@@ -267,7 +266,7 @@ func (task *Task) playFun() {
 	task.signal = Running
 }
 
-//SavePipe 保存瓦片管道
+// SavePipe 保存瓦片管道
 func (task *Task) savePipe() {
 	var batch []Tile
 	for tile := range task.savingpipe {
@@ -294,7 +293,7 @@ func (task *Task) savePipe() {
 	task.signal = Terminated
 }
 
-//SaveTile 保存瓦片
+// SaveTile 保存瓦片
 func (task *Task) saveTile(tile Tile, format string) error {
 	defer task.wg.Done()
 	err := saveToFiles(tile, task.File, format)
@@ -304,7 +303,7 @@ func (task *Task) saveTile(tile Tile, format string) error {
 	return nil
 }
 
-//tileFetcher 瓦片加载器
+// tileFetcher 瓦片加载器
 func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 	defer func() {
 		task.wg.Done()
@@ -377,10 +376,12 @@ func (task *Task) tileFetcher(t TileXyz, url string, isRetry bool) {
 	}
 }
 
-//DownloadZoom 下载指定层级
+// DownloadZoom 下载指定层级
 func (task *Task) downloadLayer(layer TileOption) {
 	fmt.Printf("Zoom %d : \n", layer.Zoom)
-	bar := pb.StartNew(layer.Count)
+	bar := pb.Full.Start(layer.Count)
+	bar.SetWriter(os.Stdout)
+	bar.Set(pb.ReturnSymbol, "\r")
 	tileList := make(chan TileXyz)
 	stopChan := make(chan int)
 	go GenerateTiles(&GenerateTilesOptions{
@@ -431,7 +432,7 @@ func (task *Task) downloadLayer(layer TileOption) {
 	fmt.Printf("Task %s zoom %d finished ~\n", task.ID, layer.Zoom)
 }
 
-//Download 开启下载任务
+// Download 开启下载任务
 func (task *Task) Download() {
 	task.signal = Running
 	go task.savePipe()
