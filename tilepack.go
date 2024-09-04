@@ -17,7 +17,7 @@ type ErrTile struct {
 	Res string `json:"res"`
 }
 
-//Tile 自定义瓦片存储
+// Tile 自定义瓦片存储
 type Tile struct {
 	X int
 	Y int
@@ -41,7 +41,7 @@ type LngLatBbox struct {
 	South float64 `json:"south"`
 }
 
-//Layer 级别&瓦片数
+// TileOption 级别&瓦片数
 type TileOption struct {
 	URL   string
 	Zoom  int
@@ -65,7 +65,7 @@ type GenerateTilesOptions struct {
 	Consumer chan TileXyz
 }
 
-//LngLat holds a standard geographic coordinate pair in decimal degrees
+// LngLat holds a standard geographic coordinate pair in decimal degrees
 type LngLat struct {
 	Lng, Lat float64
 }
@@ -79,7 +79,7 @@ func (b *LngLatBbox) Intersects(o *LngLatBbox) bool {
 	return latOverlaps && lngOverlaps
 }
 
-//XY holds a Spherical Mercator point
+// XY holds a Spherical Mercator point
 type XY struct {
 	X, Y float64
 }
@@ -92,7 +92,7 @@ func rad2deg(rad float64) float64 {
 	return rad * (oneEighty / math.Pi)
 }
 
-func min(a int, b int) int {
+func intMin(a int, b int) int {
 	if a < b {
 		return a
 	}
@@ -140,8 +140,8 @@ func GetTileCount(bounds *LngLatBbox, zoom int) int {
 		if ury < 0 {
 			ury = 0
 		}
-		row := min(ur.X+1, 1<<zoom)
-		column := min(ll.Y+1, 1<<zoom)
+		column := intMin(ur.X+1, 1<<zoom)
+		row := intMin(ll.Y+1, 1<<zoom)
 		count += (column - llx) * (row - ury)
 	}
 	return count
@@ -188,9 +188,9 @@ func GenerateTiles(opts *GenerateTilesOptions, stop chan int) {
 		if ury < 0 {
 			ury = 0
 		}
-		row := min(ur.X+1, 1<<zoom)
-		column := min(ll.Y+1, 1<<zoom)
-		for i := llx; i < column; i++ {
+		column := intMin(ur.X+1, 1<<zoom)
+		row := intMin(ll.Y+1, 1<<zoom)
+		for i := llx; i <= column; i++ {
 			for j := ury; j < row; j++ {
 				x := i
 				y := j
@@ -211,7 +211,7 @@ func (tile *TileXyz) Equals(t2 *Tile) bool {
 	return tile.X == t2.X && tile.Y == t2.Y && tile.Z == t2.Z
 }
 
-//Ul returns the upper left corner of the tile decimal degrees
+// Ul returns the upper left corner of the tile decimal degrees
 func (tile *TileXyz) Ul() *LngLat {
 	n := math.Pow(2.0, float64(tile.Z))
 	lonDeg := float64(tile.X)/n*threeSixty - oneEighty
@@ -220,7 +220,7 @@ func (tile *TileXyz) Ul() *LngLat {
 	return &LngLat{lonDeg, latDeg}
 }
 
-//Bounds returns a LngLatBbox for a given tile
+// Bounds returns a LngLatBbox for a given tile
 func (tile *TileXyz) Bounds() *LngLatBbox {
 	a := tile.Ul()
 	shifted := TileXyz{tile.X + 1, tile.Y + 1, tile.Z}
@@ -265,7 +265,7 @@ func (tile *TileXyz) ToString() string {
 	return fmt.Sprintf("{%d/%d/%d}", tile.Z, tile.X, tile.Y)
 }
 
-//ToXY transforms WGS84 DD to Spherical Mercator meters
+// ToXY transforms WGS84 DD to Spherical Mercator meters
 func ToXY(ll *LngLat) *XY {
 
 	x := radius * deg2rad(ll.Lng)
