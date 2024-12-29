@@ -5,12 +5,13 @@ import (
 	"flag"
 	"fmt"
 
+	"io"
+	"os"
+
 	nested "github.com/antonfisher/nested-logrus-formatter"
 	"github.com/gofiber/fiber/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"io"
-	"os"
 )
 
 // flag
