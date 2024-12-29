@@ -4,16 +4,16 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
-	"io"
-	"os"
 
 	nested "github.com/antonfisher/nested-logrus-formatter"
+	"github.com/gofiber/fiber/v2"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"io"
+	"os"
 )
 
-//flag
+// flag
 var (
 	hf bool
 	cf string
@@ -50,7 +50,7 @@ Usage: Fast-MBTiler [-h] [-c filename]
 	flag.PrintDefaults()
 }
 
-//initConf 初始化配置
+// initConf 初始化配置
 func initConf(cfgFile string) {
 	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
 		log.Warnf("config file(%s) not exist", cfgFile)
@@ -71,7 +71,7 @@ func initConf(cfgFile string) {
 	viper.SetDefault("task.index", 0)
 }
 
-//TileMap 瓦片地图类型
+// TileMap 瓦片地图类型
 type TileMap struct {
 	ID          int
 	Name        string
@@ -126,34 +126,37 @@ func main() {
 	}
 
 	app := App{task: nil}
-	r := gin.Default()
-	r.GET("/start", func(c *gin.Context) {
-		id := c.Query("id")
+	r := fiber.New()
+	r.Get("/start", func(c *fiber.Ctx) error {
+		id := c.Query("id", "")
 		go func() {
 			app.task, _ = NewTask(layers, tm, id)
 			app.task.Download()
 		}()
-		c.JSON(200, gin.H{
+		return c.JSON(fiber.Map{
 			"message": "ok",
 		})
 	})
-	r.GET("/pause", func(c *gin.Context) {
+	r.Get("/pause", func(c *fiber.Ctx) error {
 		app.task.pauseFun()
-		c.JSON(200, gin.H{
+		return c.JSON(fiber.Map{
 			"message": "ok",
 		})
 	})
-	r.GET("/consume", func(c *gin.Context) {
+	r.Get("/consume", func(c *fiber.Ctx) error {
 		app.task.playFun()
-		c.JSON(200, gin.H{
+		return c.JSON(fiber.Map{
 			"message": "ok",
 		})
 	})
-	r.GET("/abort", func(c *gin.Context) {
+	r.Get("/abort", func(c *fiber.Ctx) error {
 		app.task.abortFun()
-		c.JSON(200, gin.H{
+		return c.JSON(fiber.Map{
 			"message": "ok",
 		})
 	})
-	r.Run(":9100")
+	err = r.Listen(":3000")
+	if err != nil {
+		return
+	}
 }
